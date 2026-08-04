@@ -6,28 +6,26 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
- public function up(): void
+    public function up(): void
     {
         Schema::create('users', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('office_id')->nullable();
+            $table->foreignUuid('division_id')->nullable();
 
-            // Account Credentials (REQUIRED)
             $table->string('username')->unique();
             $table->string('password');
-
-            // Employee Details (NULLABLE / OPTIONAL FOR ADMIN)
-            $table->string('fullname')->nullable();
+            $table->string('first_name');
+            $table->string('last_name');
             $table->string('employee_id')->nullable();
             $table->date('birthdate')->nullable();
-            $table->string('office')->nullable();
-            $table->string('division')->nullable();
             $table->string('position')->nullable();
-
-            // Default Status & Role
-            $table->string('role')->default('Admin');
-            $table->string('status')->default('Active');
+            $table->string('avatar_url')->nullable();
+            $table->boolean('is_active')->default(true);
+            $table->timestamp('last_login_at')->nullable();
 
             $table->rememberToken();
+            $table->softDeletes();
             $table->timestamps();
         });
     }
