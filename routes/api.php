@@ -28,3 +28,26 @@ Route::post('/login', function (Request $request) {
         'message' => 'Invalid username or password'
     ], 401);
 });
+
+Route::middleware('auth:sanctum')->group(function () {
+    // Return currently logged-in user details
+    Route::get('/me', function (Request $request) {
+        return response()->json($request->user());
+    });
+
+    // Update editable profile fields
+    Route::put('/me', function (Request $request) {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'fullname' => 'sometimes|nullable|string|max:255',
+            'division' => 'sometimes|nullable|string|max:255',
+            'position' => 'sometimes|nullable|string|max:255',
+            'email'    => 'sometimes|nullable|email|max:255',
+        ]);
+
+        $user->update($validated);
+
+        return response()->json($user->fresh());
+    });
+});
