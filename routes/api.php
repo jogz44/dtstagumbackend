@@ -1,9 +1,11 @@
 <?php
 
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
+use App\Http\Controllers\UserController;
 use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Route;
 
 Route::post('/login', function (Request $request) {
     $request->validate([
@@ -14,18 +16,17 @@ Route::post('/login', function (Request $request) {
     $user = User::where('username', $request->username)->first();
 
     if ($user && Hash::check($request->password, $user->password)) {
-        // Create Sanctum Token safely
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
             'message' => 'Login successful',
             'user' => $user,
-            'token' => $token
+            'token' => $token,
         ], 200);
     }
 
     return response()->json([
-        'message' => 'Invalid username or password'
+        'message' => 'Invalid username or password',
     ], 401);
 });
 
