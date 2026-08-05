@@ -28,7 +28,8 @@ class StoreDocumentRequest extends FormRequest
             'division_assignment' => ['nullable', 'string', 'max:255'],
             'assigned_user' => ['nullable', 'string', 'max:255'],
             'is_read_only' => ['sometimes', 'boolean'],
-            'attachments' => ['required', 'array', 'min:1'],
+            'notes'        => ['nullable', 'string'],
+            'attachments'  => ['nullable', 'array'],
             'attachments.*' => ['file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
         ];
     }

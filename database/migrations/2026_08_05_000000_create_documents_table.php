@@ -11,7 +11,7 @@ return new class extends Migration
         Schema::create('documents', function (Blueprint $table) {
             $table->uuid('id')->primary();
             $table->string('tracking_number')->unique();
-            $table->foreignId('created_by')->constrained('users')->restrictOnDelete();
+            $table->foreignUuid('created_by')->constrained('users')->restrictOnDelete();
             $table->string('origin_sender');
             $table->string('sender_name');
             $table->string('document_type');

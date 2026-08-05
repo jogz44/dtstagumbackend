@@ -19,7 +19,7 @@ class Document extends Model
         'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'document_type',
         'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
-        'assigned_user', 'is_read_only', 'status',
+        'assigned_user', 'is_read_only', 'status', 'notes',
     ];
 
     protected function casts(): array
