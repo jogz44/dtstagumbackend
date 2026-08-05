@@ -1,7 +1,11 @@
 <?php
 
 return [
-    'paths' => ['api/*', 'sanctum/csrf-cookie'],
+    'paths' => [
+        'api/*',
+        'sanctum/csrf-cookie',
+        'HR-Document-Tracking-System-main/backend/public/api/*',
+    ],
 
     'allowed_methods' => ['*'],
 
@@ -9,9 +13,13 @@ return [
         'http://localhost:9000',
         'http://localhost:9001',
         'http://localhost:9002',
+        'http://localhost:9003',
+        'http://localhost:9004',
         'http://127.0.0.1:9000',
         'http://127.0.0.1:9001',
         'http://127.0.0.1:9002',
+        'http://127.0.0.1:9003',
+        'http://127.0.0.1:9004',
     ],
 
     'allowed_origins_patterns' => [],
@@ -24,3 +32,7 @@ return [
 
     'supports_credentials' => false,
 ];
+
+
+
+
