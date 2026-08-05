@@ -11,7 +11,7 @@ return new class extends Migration
         if (! Schema::hasTable('user_permission_overrides')) {
             Schema::create('user_permission_overrides', function (Blueprint $table) {
                 $table->id();
-                $table->foreignUuid('user_id')->constrained('users')->cascadeOnDelete();
+                $table->foreignId('user_id')->constrained('users')->cascadeOnDelete();
                 $table->string('permission_name');
                 $table->string('effect', 20);
                 $table->timestamps();

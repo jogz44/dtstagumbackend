@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\UserController;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -31,6 +32,7 @@ Route::post('/login', function (Request $request) {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
+    Route::post('/documents', [DocumentController::class, 'store']);
     // Return currently logged-in user details
     Route::get('/me', function (Request $request) {
         return response()->json($request->user());
@@ -42,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
         $validated = $request->validate([
             'fullname' => 'sometimes|nullable|string|max:255',
+            'office'   => 'sometimes|nullable|string|max:255',
             'division' => 'sometimes|nullable|string|max:255',
             'position' => 'sometimes|nullable|string|max:255',
             'email'    => 'sometimes|nullable|email|max:255',
@@ -50,5 +53,23 @@ Route::middleware('auth:sanctum')->group(function () {
         $user->update($validated);
 
         return response()->json($user->fresh());
+    });
+
+    // Change the authenticated user's password
+    Route::post('/change-password', function (Request $request) {
+        $request->validate([
+            'current_password' => 'required|string',
+            'new_password'     => 'required|string|min:6',
+        ]);
+
+        $user = $request->user();
+
+        if (!Hash::check($request->current_password, $user->password)) {
+            return response()->json(['message' => 'Current password is incorrect.'], 422);
+        }
+
+        $user->update(['password' => Hash::make($request->new_password)]);
+
+        return response()->json(['message' => 'Password updated successfully.']);
     });
 });

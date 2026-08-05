@@ -29,7 +29,6 @@ class Division extends Model
     protected function casts(): array
     {
         return [
-            'office_id' => 'integer',
             'is_active' => 'boolean',
         ];
     }
