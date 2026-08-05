@@ -12,7 +12,7 @@ return new class extends Migration
         $foreignKeys = collect(Schema::getForeignKeys('user_permission_overrides'))->pluck('name');
 
         Schema::table('user_permission_overrides', function (Blueprint $table) use ($indexes, $foreignKeys) {
-            $table->unsignedBigInteger('user_id')->change();
+            $table->uuid('user_id')->change();
 
             if (! $indexes->contains('user_permission_overrides_user_id_permission_name_unique')) {
                 $table->unique(['user_id', 'permission_name']);
