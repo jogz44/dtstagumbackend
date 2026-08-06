@@ -14,7 +14,14 @@ class UpdateUserRequest extends FormRequest
 
     public function rules(): array
     {
-        $userId = $this->route('user')?->id ?? $this->route('user');
+        $routeUser = $this->route('user');
+        $userId = is_object($routeUser) ? $routeUser->id : $routeUser;
+        $officeId = $this->input('office_id') ?? (is_object($routeUser) ? $routeUser->office_id : null);
+        $divisionRule = Rule::exists('divisions', 'id');
+
+        if ($officeId) {
+            $divisionRule->where('office_id', (string) $officeId);
+        }
 
         return [
             'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)],
@@ -22,7 +29,7 @@ class UpdateUserRequest extends FormRequest
             'first_name' => ['sometimes', 'string', 'max:255'],
             'last_name' => ['sometimes', 'string', 'max:255'],
             'office_id' => ['nullable', 'uuid', Rule::exists('offices', 'id')],
-            'division_id' => ['nullable', 'uuid', Rule::exists('divisions', 'id')],
+            'division_id' => ['nullable', 'uuid', $divisionRule],
             'employee_id' => ['nullable', 'string', 'max:255'],
             'birthdate' => ['nullable', 'date'],
             'position' => ['nullable', 'string', 'max:255'],

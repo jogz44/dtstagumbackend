@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\UserController;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -41,6 +42,7 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/documents', [DocumentController::class, 'store']);
+    Route::get('/organizations', [OrganizationController::class, 'index']);
     Route::apiResource('users', UserController::class);
     // Return currently logged-in user details
     Route::get('/me', function (Request $request) {
