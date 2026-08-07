@@ -33,6 +33,10 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/documents', [DocumentController::class, 'store']);
+    
+    // Roles
+    Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
+
     // Return currently logged-in user details
     Route::get('/me', function (Request $request) {
         return response()->json($request->user());
