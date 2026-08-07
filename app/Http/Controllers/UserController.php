@@ -17,9 +17,9 @@ class UserController extends Controller
         $users = User::query()
             ->with(['office', 'division'])
             ->with(['permissionOverrides'])
-            ->when($request->filled('office_id'), fn($query) => $query->where('office_id', $request->string('office_id')))
-            ->when($request->filled('division_id'), fn($query) => $query->where('division_id', $request->string('division_id')))
-            ->when($request->filled('role'), fn($query) => $query->role($request->string('role')))
+            ->when($request->filled('office_id'), fn($query) => $query->where('office_id', (string) $request->input('office_id')))
+            ->when($request->filled('division_id'), fn($query) => $query->where('division_id', (string) $request->input('division_id')))
+            ->when($request->filled('role'), fn($query) => $query->role((string) $request->input('role')))
             ->when($request->filled('is_active'), fn($query) => $query->where('is_active', filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)))
             ->latest()
             ->paginate($request->integer('per_page', 15));
@@ -67,7 +67,7 @@ class UserController extends Controller
     private function syncAuthorizationState(User $user, Request $request): void
     {
         if ($request->filled('role')) {
-            $user->syncRoles([$request->string('role')]);
+            $user->syncRoles([(string) $request->input('role')]);
         }
 
         if ($request->filled('permissions')) {

@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\UserController;
 use App\Models\User;
 use Illuminate\Http\Request;
@@ -14,14 +15,22 @@ Route::post('/login', function (Request $request) {
         'password' => 'required',
     ]);
 
-    $user = User::where('username', $request->username)->first();
+    $username = trim((string) $request->username);
+    $user = User::whereRaw('LOWER(username) = ?', [strtolower($username)])->first();
 
     if ($user && Hash::check($request->password, $user->password)) {
+        if (! $user->is_active) {
+            return response()->json([
+                'message' => 'This account is inactive. Please contact an administrator.',
+            ], 403);
+        }
+
+        $user->forceFill(['last_login_at' => now()])->save();
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
             'message' => 'Login successful',
-            'user' => $user,
+            'user' => $user->load(['office', 'division', 'permissionOverrides']),
             'token' => $token,
         ], 200);
     }
@@ -37,6 +46,8 @@ Route::middleware('auth:sanctum')->group(function () {
     // Roles
     Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
 
+    Route::get('/organizations', [OrganizationController::class, 'index']);
+    Route::apiResource('users', UserController::class);
     // Return currently logged-in user details
     Route::get('/me', function (Request $request) {
         return response()->json($request->user());

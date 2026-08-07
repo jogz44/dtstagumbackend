@@ -1,0 +1,200 @@
+# Backend Setup Guide
+
+This guide is for setting up the Laravel backend locally.
+
+## Requirements
+
+Install these first:
+
+- PHP 8.2 or newer
+- Composer
+- A database supported by the project configuration
+
+After installing PHP, confirm it works:
+
+```powershell
+php -v
+```
+
+After installing Composer, confirm it works:
+
+```powershell
+composer -V
+```
+
+## Quick Start
+
+Use these commands from the project root after PHP, Composer, and MySQL are installed:
+
+```powershell
+cd backend
+composer install
+copy .Env.example .env
+php artisan key:generate
+php artisan migrate
+php artisan db:seed
+php artisan serve --host=127.0.0.1 --port=8000
+```
+
+Keep this terminal open while using the frontend. The backend API will be available at:
+
+```text
+http://127.0.0.1:8000
+```
+
+## Install Backend Dependencies
+
+From the project root:
+
+```powershell
+cd backend
+composer install
+```
+
+This installs Laravel and all backend packages.
+
+## Environment File
+
+If `.env` does not exist yet, create it from the example file:
+
+```powershell
+copy .Env.example .env
+```
+
+Then generate the Laravel app key:
+
+```powershell
+php artisan key:generate
+```
+
+Update the database settings in `.env` to match your local database.
+
+For the current local setup, use:
+
+```env
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=lgudts
+DB_USERNAME=root
+DB_PASSWORD=
+```
+
+This expects a local MySQL database named `lgudts` with the `root` user and no password. If your MySQL setup uses a password or a different database name, update these values.
+
+## Database Setup
+
+Run migrations:
+
+```powershell
+php artisan migrate
+```
+
+Seed default roles, permissions, and admin user:
+
+```powershell
+php artisan db:seed
+```
+
+Default seeded admin login:
+
+```text
+username: admin
+password: 1234567
+```
+
+New teammate accounts created from User Management also use default password `1234567`.
+
+## Run Backend Server
+
+From the `backend` folder, start Laravel with:
+
+```powershell
+php artisan serve --host=127.0.0.1 --port=8000
+```
+
+Keep this PowerShell window open. If you close it, the backend stops and login/API requests will fail.
+
+Expected output:
+
+```text
+Server running on [http://127.0.0.1:8000]
+```
+
+To confirm the backend is reachable, open this in a browser:
+
+```text
+http://127.0.0.1:8000
+```
+
+## Laravel Boost
+
+Laravel Boost is installed as a development dependency for AI/MCP tooling.
+
+Teammates do not need to use Boost to log in or run the HR system. If they run normal backend setup with:
+
+```powershell
+composer install
+```
+
+Boost will be installed automatically because it is listed under `require-dev`.
+
+If someone installs dependencies without dev packages:
+
+```powershell
+composer install --no-dev
+```
+
+The app can still run, but Boost commands will not be available.
+
+Useful Boost commands:
+
+```powershell
+php artisan boost:list-skills
+php artisan boost:update
+php artisan boost:mcp
+```
+
+## Common Problems
+
+### `php` is not recognized
+
+PHP is not installed or is not added to PATH. Restart PowerShell after installing PHP, then try:
+
+```powershell
+php -v
+```
+
+### `Could not open input file: artisan`
+
+You are not inside the backend folder. Run:
+
+```powershell
+cd backend
+php artisan serve --host=127.0.0.1 --port=8000
+```
+
+### Composer says `openssl` is missing
+
+Enable the `openssl` extension in your `php.ini` file, then retry Composer.
+
+### Login fails for teammates
+
+Make sure the teammate account was created through User Management after pulling the latest backend changes. Temporary users added before the backend fix may not exist in the database.
+
+Also confirm the backend server is running and the frontend is calling the correct `/api` endpoint.
+
+### Backend starts but database errors appear
+
+Confirm MySQL is running, the database exists, and `.env` matches your local database settings. For this project, create/use a database named:
+
+```text
+lgudts
+```
+
+Then run:
+
+```powershell
+php artisan migrate
+php artisan db:seed
+```

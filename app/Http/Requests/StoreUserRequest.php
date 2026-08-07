@@ -14,17 +14,24 @@ class StoreUserRequest extends FormRequest
 
     public function rules(): array
     {
+        $divisionRule = Rule::exists('divisions', 'id');
+
+        if ($this->filled('office_id')) {
+            $divisionRule->where('office_id', (string) $this->input('office_id'));
+        }
+
         return [
             'username' => ['required', 'string', 'max:255', 'unique:users,username'],
-            'password' => ['required', 'string', 'min:8'],
+            'password' => ['required', 'string', 'min:7'],
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
             'office_id' => ['nullable', 'uuid', Rule::exists('offices', 'id')],
-            'division_id' => ['nullable', 'uuid', Rule::exists('divisions', 'id')],
+            'division_id' => ['nullable', 'uuid', $divisionRule],
             'employee_id' => ['nullable', 'string', 'max:255'],
             'birthdate' => ['nullable', 'date'],
             'position' => ['nullable', 'string', 'max:255'],
             'avatar_url' => ['nullable', 'url'],
+            'email' => ['nullable', 'email', 'max:255'],
             'is_active' => ['boolean'],
             'role' => ['nullable', 'string', Rule::exists('roles', 'name')],
             'permissions' => ['nullable', 'array'],
