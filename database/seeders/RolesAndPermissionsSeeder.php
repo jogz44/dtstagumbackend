@@ -16,12 +16,12 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'receiver', 'guard_name' => 'web', 'display_name' => 'Receiver', 'description' => 'Can receive and route documents', 'is_system' => true],
         ];
 
-       $permissions = [
+        $permissions = [
             ['name' => 'can_receive_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Receive incoming documents'],
             ['name' => 'can_transfer_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Transfer documents to another office or division'],
             ['name' => 'can_view_confidential', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'View confidential documents'],
-            ['name' => 'can_approve_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Approve documents'],
-            ['name' => 'can_archive_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Archive documents'],
+            ['name' => 'can_edit_document', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Edit a document'],
+            ['name' => 'can_share_document', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Share a document'],
             ['name' => 'users.create', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Create users'],
             ['name' => 'users.edit', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Edit users'],
             ['name' => 'users.delete', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Delete users'],

@@ -43,8 +43,11 @@ Route::post('/login', function (Request $request) {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('/documents', [DocumentController::class, 'store']);
     
-    // Roles
+     // Roles
     Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
+
+    Route::get('/roles/{role}/permissions', [\App\Http\Controllers\RoleController::class, 'getPermissions']);
+    Route::put('/roles/{role}/permissions', [\App\Http\Controllers\RoleController::class, 'updatePermissions']);
 
     Route::get('/organizations', [OrganizationController::class, 'index']);
     Route::apiResource('users', UserController::class);
