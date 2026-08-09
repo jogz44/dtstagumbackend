@@ -16,12 +16,12 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'receiver', 'guard_name' => 'web', 'display_name' => 'Receiver', 'description' => 'Can receive and route documents', 'is_system' => true],
         ];
 
-        $permissions = [
-            ['name' => 'documents.receive', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Receive incoming documents'],
-            ['name' => 'documents.transfer', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Transfer documents to another office or division'],
-            ['name' => 'documents.view_confidential', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'View confidential documents'],
-            ['name' => 'documents.approve', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Approve documents'],
-            ['name' => 'documents.archive', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Archive documents'],
+       $permissions = [
+            ['name' => 'can_receive_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Receive incoming documents'],
+            ['name' => 'can_transfer_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Transfer documents to another office or division'],
+            ['name' => 'can_view_confidential', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'View confidential documents'],
+            ['name' => 'can_approve_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Approve documents'],
+            ['name' => 'can_archive_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Archive documents'],
             ['name' => 'users.create', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Create users'],
             ['name' => 'users.edit', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Edit users'],
             ['name' => 'users.delete', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Delete users'],
