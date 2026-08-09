@@ -21,6 +21,7 @@ class User extends Authenticatable
     protected $fillable = [
         'username',
         'password',
+        'must_change_password',
         'first_name',
         'last_name',
         'office_id',
@@ -42,6 +43,7 @@ class User extends Authenticatable
     protected $casts = [
         'birthdate' => 'date',
         'is_active' => 'boolean',
+        'must_change_password' => 'boolean',
         'last_login_at' => 'datetime',
     ];
 

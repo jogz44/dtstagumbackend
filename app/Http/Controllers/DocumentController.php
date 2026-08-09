@@ -4,13 +4,14 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreDocumentRequest;
 use App\Models\Document;
+use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class DocumentController extends Controller
 {
-    public function store(StoreDocumentRequest $request): JsonResponse
+    public function store(StoreDocumentRequest $request, AuditService $audit): JsonResponse
     {
         $validated = $request->safe()->except('attachments');
 
@@ -38,7 +39,30 @@ class DocumentController extends Controller
             return $document;
         });
 
+        $audit->activity(
+
+            $request->user(),
+
+            'document.received',
+
+            'Documents',
+
+            'Uploaded a new document.',
+
+            $request,
+
+            [
+
+                'resource_type' => 'document',
+
+                'resource_id' => $document->id,
+
+            ],
+
+        );
+
         return response()->json([
+
             'message' => 'Document saved successfully.',
             'document' => $document->load('attachments'),
         ], 201);
