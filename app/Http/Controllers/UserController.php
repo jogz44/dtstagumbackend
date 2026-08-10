@@ -182,6 +182,7 @@ class UserController extends Controller
             'office_id' => 'office',
             'division_id' => 'division',
             'position' => 'position',
+            'employment_status' => 'employment status',
             'email' => 'email',
             'is_active' => 'account status',
             'role' => 'role',

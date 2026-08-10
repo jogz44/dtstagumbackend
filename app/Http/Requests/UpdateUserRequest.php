@@ -43,6 +43,7 @@ class UpdateUserRequest extends FormRequest
             'employee_id' => ['nullable', 'string', 'max:255'],
             'birthdate' => ['nullable', 'date'],
             'position' => ['nullable', 'string', 'max:255'],
+            'employment_status' => ['nullable', 'string', Rule::in(['regular', 'casual', 'contractual', 'honorarium', 'co-terminous'])],
             'avatar_url' => ['nullable', 'url'],
             'email' => ['nullable', 'email', 'max:255'],
             'is_active' => ['boolean'],

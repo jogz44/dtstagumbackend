@@ -29,6 +29,7 @@ class User extends Authenticatable
         'employee_id',
         'birthdate',
         'position',
+        'employment_status',
         'avatar_url',
         'is_active',
         'email',

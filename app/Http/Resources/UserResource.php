@@ -18,6 +18,7 @@ class UserResource extends JsonResource
             'employee_id' => $this->employee_id,
             'birthdate' => $this->birthdate?->toDateString(),
             'position' => $this->position,
+            'employment_status' => $this->employment_status,
             'avatar_url' => $this->avatar_url,
             'is_active' => $this->is_active,
             'must_change_password' => $this->must_change_password,
