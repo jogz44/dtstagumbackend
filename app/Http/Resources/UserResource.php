@@ -20,6 +20,7 @@ class UserResource extends JsonResource
             'position' => $this->position,
             'avatar_url' => $this->avatar_url,
             'is_active' => $this->is_active,
+            'must_change_password' => $this->must_change_password,
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),
             'roles' => $this->getRoleNames()->values(),

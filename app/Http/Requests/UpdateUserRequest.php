@@ -7,6 +7,16 @@ use Illuminate\Validation\Rule;
 
 class UpdateUserRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'employee_id' => $this->input('employee_id', $this->input('employeeId')),
+            'office_id' => $this->input('office_id', $this->input('officeId')),
+            'division_id' => $this->input('division_id', $this->input('divisionId')),
+            'is_active' => $this->input('is_active', $this->has('status') ? strtolower((string) $this->input('status')) === 'active' : $this->input('is_active')),
+        ]);
+    }
+
     public function authorize(): bool
     {
         return true;
