@@ -104,3 +104,21 @@ Route::middleware('auth:sanctum')->group(function () {
         });
     });
 });
+
+Route::get('/test-pmis', function () {
+    try {
+        $pdo = Illuminate\Support\Facades\DB::connection('pmis')->getPdo();
+        $data = Illuminate\Support\Facades\DB::connection('pmis')->table('vwActive')->limit(5)->get();
+        return response()->json([
+            'status' => 'success',
+            'connection' => 'Connected successfully to SSMS SQL Server!',
+            'sample_data' => $data
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
+    }
+});
