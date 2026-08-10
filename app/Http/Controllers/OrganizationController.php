@@ -7,49 +7,51 @@ use App\Models\Division;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class OrganizationController extends Controller
 {
     public function index(): JsonResponse
     {
         try {
-            // Fetch all records from the pmis2003.vwActive table view
-            $pmisRecords = DB::connection('pmis')->table('vwActive')->get();
+            // Fetch only divisions and office columns from the pmis2003.vwActive view
+            $pmisRecords = DB::connection('pmis')
+                ->table('vwActive')
+                ->select('office', 'divisions')
+                ->distinct()
+                ->get();
 
             // Synchronize the offices and divisions to the local lgudts database
             foreach ($pmisRecords as $record) {
-                // Extract Office fields (supporting multiple column naming conventions in SSMS)
-                $officeId = $record->office_id ?? $record->OfficeID ?? $record->OfficeId ?? $record->dept_id ?? $record->DeptID ?? $record->id ?? $record->ID ?? null;
-                $officeName = $record->office_name ?? $record->OfficeName ?? $record->Office ?? $record->dept_name ?? $record->DeptName ?? $record->name ?? $record->NAME ?? null;
-                $officeCode = $record->office_code ?? $record->OfficeCode ?? $record->code ?? $record->CODE ?? $record->short_name ?? null;
-
-                // Extract Division fields (divisions can be nullable if some offices don't have divisions)
-                $divisionId = $record->division_id ?? $record->DivisionID ?? $record->DivisionId ?? null;
-                $divisionName = $record->division_name ?? $record->DivisionName ?? $record->Division ?? null;
-                $divisionCode = $record->division_code ?? $record->DivisionCode ?? null;
+                $officeName = $record->office ? trim((string) $record->office) : null;
+                $divisionName = $record->divisions ? trim((string) $record->divisions) : null;
 
                 // Synchronize the Office
-                if ($officeId && $officeName) {
-                    Office::withTrashed()->updateOrCreate(
-                        ['id' => (string) $officeId],
+                if ($officeName) {
+                    $officeCode = Str::upper(Str::limit(Str::slug($officeName), 40, '')) . '-' . substr(md5($officeName), 0, 5);
+
+                    $office = Office::withTrashed()->updateOrCreate(
+                        ['name' => $officeName],
                         [
                             'code' => $officeCode,
-                            'name' => $officeName,
-                            'short_name' => $officeCode,
+                            'short_name' => $officeName,
                             'is_active' => true,
                             'deleted_at' => null,
                         ]
                     );
 
-                    // Synchronize the Division under this Office (if present and distinct from the office ID)
-                    if ($divisionId && $divisionName && (string)$divisionId !== (string)$officeId) {
+                    // Synchronize the Division under this Office (if present)
+                    if ($divisionName) {
+                        $divisionCode = Str::upper(Str::limit(Str::slug($divisionName), 40, '')) . '-' . substr(md5($divisionName), 0, 5);
+
                         Division::withTrashed()->updateOrCreate(
-                            ['id' => (string) $divisionId],
                             [
-                                'office_id' => (string) $officeId,
-                                'code' => $divisionCode,
+                                'office_id' => $office->id,
                                 'name' => $divisionName,
-                                'short_name' => $divisionCode,
+                            ],
+                            [
+                                'code' => $divisionCode,
+                                'short_name' => $divisionName,
                                 'is_active' => true,
                                 'deleted_at' => null,
                             ]

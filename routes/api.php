@@ -108,7 +108,7 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/test-pmis', function () {
     try {
         $pdo = Illuminate\Support\Facades\DB::connection('pmis')->getPdo();
-        $data = Illuminate\Support\Facades\DB::connection('pmis')->table('vwActive')->limit(5)->get();
+        $data = Illuminate\Support\Facades\DB::connection('pmis')->table('vwActive')->select('office', 'divisions')->distinct()->limit(5)->get();
         return response()->json([
             'status' => 'success',
             'connection' => 'Connected successfully to SSMS SQL Server!',
