@@ -1,0 +1,28 @@
+<?php
+
+namespace App\Services;
+
+use App\Models\User;
+
+class UserAuditAccess
+{
+    public function canRead(User $authUser, User $targetUser): bool
+    {
+        if ($authUser->hasRole('super_admin')) {
+            return true;
+        }
+
+        return $authUser->hasRole('supervisor')
+            && $authUser->office_id === $targetUser->office_id
+            && $authUser->division_id === $targetUser->division_id;
+    }
+
+    public function authorize(User $authUser, User $targetUser): void
+    {
+        if ($this->canRead($authUser, $targetUser)) {
+            return;
+        }
+
+        abort(403, 'You are not authorized to view this user audit data.');
+    }
+}

@@ -77,10 +77,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed')->group(function () {
         Route::post('/documents', [DocumentController::class, 'store']);
+        Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
         Route::get('/users/{user}/history', [UserAuditController::class, 'history']);
+        Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory']);
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity']);
         Route::get('/users/{user}/security', [UserSecurityController::class, 'show']);
         Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword']);
