@@ -6,6 +6,7 @@ use App\Http\Requests\StoreDocumentRequest;
 use App\Models\Document;
 use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -97,9 +98,19 @@ class DocumentController extends Controller
         );
 
         return response()->json([
-
             'message' => 'Document saved successfully.',
             'document' => $document->load('attachments'),
         ], 201);
+    }
+
+    public function index(Request $request): JsonResponse
+    {
+        $documents = Document::query()
+            ->latest()
+            ->get();
+
+        return response()->json([
+            'data' => $documents
+        ]);
     }
 }

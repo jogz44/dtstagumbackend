@@ -77,6 +77,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed')->group(function () {
         Route::post('/documents', [DocumentController::class, 'store']);
+        Route::get('/documents', [DocumentController::class, 'index']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
