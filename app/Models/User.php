@@ -10,6 +10,18 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
+/**
+ * @property string $id
+ * @property string $username
+ * @property string $first_name
+ * @property string $last_name
+ * @property string|null $office_id
+ * @property string|null $division_id
+ * @property string|null $position
+ * @property string|null $employee_id
+ * @property bool $is_active
+ * @property-read string $full_name
+ */
 class User extends Authenticatable
 {
     use HasApiTokens, HasRoles, HasUuids, Notifiable;

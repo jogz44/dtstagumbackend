@@ -8,6 +8,20 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property string $id
+ * @property string $document_id
+ * @property string|null $tracking_number
+ * @property string $performed_by
+ * @property string $action
+ * @property string|null $from_office_id
+ * @property string|null $to_office_id
+ * @property string|null $from_division_id
+ * @property string|null $to_division_id
+ * @property string|null $from_user_id
+ * @property string|null $to_user_id
+ * @property string|null $remarks
+ */
 class DocumentHistory extends Model
 {
     use HasUuids;
@@ -96,9 +110,14 @@ class DocumentHistory extends Model
         return $this->belongsTo(Division::class, 'to_division_id');
     }
 
+    /**
+     * @param Builder $query
+     * @param User|string $user
+     * @return Builder
+     */
     public function scopeInvolvingUser(Builder $query, User|string $user): Builder
     {
-        $userId = $user instanceof User ? $user->id : $user;
+        $userId = $user instanceof User ? (string) $user->getKey() : (string) $user;
 
         return $query->where(function (Builder $involvementQuery) use ($userId) {
             $involvementQuery
@@ -108,6 +127,13 @@ class DocumentHistory extends Model
         });
     }
 
+    /**
+     * @param Document $document
+     * @param string $eventType
+     * @param User $performedBy
+     * @param array $attributes
+     * @return self
+     */
     public static function record(Document $document, string $eventType, User $performedBy, array $attributes = []): self
     {
         $eventType = strtoupper($eventType);
@@ -116,10 +142,16 @@ class DocumentHistory extends Model
             throw new InvalidArgumentException("Unsupported document history event type [{$eventType}].");
         }
 
+        $trackingNumber = isset($attributes['tracking_number'])
+            ? (string) $attributes['tracking_number']
+            : (string) $document->getAttribute('tracking_number');
+
+        $performedById = (string) $performedBy->getKey();
+
         return $document->histories()->create([
             ...$attributes,
-            'tracking_number' => $attributes['tracking_number'] ?? $document->tracking_number,
-            'performed_by' => $performedBy->id,
+            'tracking_number' => $trackingNumber,
+            'performed_by' => $performedById,
             'action' => $eventType,
         ]);
     }
