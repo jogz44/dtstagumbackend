@@ -17,15 +17,17 @@ class RolesAndPermissionsSeeder extends Seeder
         ];
 
        $permissions = [
-            ['name' => 'can_receive_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Receive incoming documents'],
-            ['name' => 'can_transfer_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Transfer documents to another office or division'],
-            ['name' => 'can_view_confidential', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'View confidential documents'],
-            ['name' => 'can_approve_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Approve documents'],
-            ['name' => 'can_archive_documents', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Archive documents'],
-            ['name' => 'users.create', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Create users'],
-            ['name' => 'users.edit', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Edit users'],
-            ['name' => 'users.delete', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Delete users'],
-            ['name' => 'users.manage_permissions', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Manage user permissions'],
+            ['name' => 'documents.receive', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Receive incoming documents'],
+            ['name' => 'documents.register', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Register new documents'],
+            ['name' => 'documents.edit', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Edit document metadata and content'],
+            ['name' => 'documents.transfer', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Transfer documents to another office or division'],
+            ['name' => 'documents.view_confidential', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'View confidential documents'],
+            ['name' => 'users.manage', 'guard_name' => 'web', 'group_name' => 'Administration', 'description' => 'Manage user accounts'],
+            ['name' => 'roles.manage', 'guard_name' => 'web', 'group_name' => 'Administration', 'description' => 'Manage roles and permissions'],
+            ['name' => 'settings.manage', 'guard_name' => 'web', 'group_name' => 'Administration', 'description' => 'Manage system settings'],
+            ['name' => 'reports.view', 'guard_name' => 'web', 'group_name' => 'Reports & Monitoring', 'description' => 'View reports'],
+            ['name' => 'activity_logs.view', 'guard_name' => 'web', 'group_name' => 'Reports & Monitoring', 'description' => 'View activity logs'],
+            ['name' => 'performance_ranking.view', 'guard_name' => 'web', 'group_name' => 'Reports & Monitoring', 'description' => 'View performance ranking'],
         ];
 
         $roleModels = collect($roles)->mapWithKeys(function (array $role) {
@@ -38,15 +40,17 @@ class RolesAndPermissionsSeeder extends Seeder
 
         $roleModels['super_admin']->syncPermissions($permissionModels->keys()->all());
         $roleModels['supervisor']->syncPermissions([
+            'documents.receive',
+            'documents.register',
             'documents.transfer',
             'documents.view_confidential',
-            'documents.approve',
-            'documents.archive',
-            'users.create',
-            'users.edit',
+            'reports.view',
+            'activity_logs.view',
+            'performance_ranking.view',
         ]);
         $roleModels['receiver']->syncPermissions([
             'documents.receive',
+            'documents.register',
             'documents.transfer',
         ]);
     }

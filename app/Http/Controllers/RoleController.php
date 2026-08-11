@@ -2,8 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Permission;
 use App\Models\Role;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class RoleController extends Controller
 {
@@ -12,10 +16,73 @@ class RoleController extends Controller
      */
     public function index(): JsonResponse
     {
-        $roles = Role::withCount('users')->get();
+        $roles = Role::query()
+            ->with(['permissions' => fn ($query) => $query->orderBy('group_name')->orderBy('name')])
+            ->orderBy('display_name')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Role $role) => $this->rolePayload($role));
+
+        $permissions = Permission::query()
+            ->orderBy('group_name')
+            ->orderBy('name')
+            ->get()
+            ->map(fn (Permission $permission) => $this->permissionPayload($permission))
+            ->values();
 
         return response()->json([
-            'roles' => $roles
+            'roles' => $roles,
+            'permissions' => $permissions,
         ]);
+    }
+
+    public function updatePermissions(Request $request, Role $role): JsonResponse
+    {
+        $validated = $request->validate([
+            'permissions' => ['present', 'array'],
+            'permissions.*' => ['string', Rule::exists('permissions', 'name')],
+        ]);
+
+        $role->syncPermissions($validated['permissions']);
+        $role->load('permissions');
+
+        return response()->json([
+            'role' => $this->rolePayload($role),
+        ]);
+    }
+
+    private function rolePayload(Role $role): array
+    {
+        return [
+            'id' => $role->id,
+            'name' => $role->name,
+            'display_name' => $role->display_name,
+            'description' => $role->description,
+            'guard_name' => $role->guard_name,
+            'is_system' => $role->is_system,
+            'users_count' => $this->usersCount($role),
+            'permissions' => $role->permissions
+                ->map(fn (Permission $permission) => $this->permissionPayload($permission))
+                ->values(),
+        ];
+    }
+
+    private function permissionPayload(Permission $permission): array
+    {
+        return [
+            'id' => $permission->id,
+            'name' => $permission->name,
+            'label' => str($permission->name)->replace(['.', '_', '-'], ' ')->title()->toString(),
+            'group_name' => $permission->group_name,
+            'description' => $permission->description,
+        ];
+    }
+
+    private function usersCount(Role $role): int
+    {
+        return DB::table(config('permission.table_names.model_has_roles'))
+            ->where('role_id', $role->id)
+            ->where('model_type', config('auth.providers.users.model'))
+            ->count();
     }
 }

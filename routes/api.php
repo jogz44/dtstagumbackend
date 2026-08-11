@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
+use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
@@ -33,7 +34,7 @@ Route::post('/login', function (Request $request) {
 
         return response()->json([
             'message' => 'Login successful',
-            'user' => $user->load(['office', 'division', 'permissionOverrides']),
+            'user' => $user->load(['office', 'division', 'roles']),
             'must_change_password' => $user->must_change_password,
             'token' => $token,
         ], 200);
@@ -78,7 +79,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('password.changed')->group(function () {
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
-        Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
+        Route::get('/roles', [RoleController::class, 'index']);
+        Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions']);
         Route::get('/users/{user}/history', [UserAuditController::class, 'history']);
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity']);
         Route::get('/users/{user}/security', [UserSecurityController::class, 'show']);
