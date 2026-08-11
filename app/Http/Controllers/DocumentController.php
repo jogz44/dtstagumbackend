@@ -36,6 +36,41 @@ class DocumentController extends Controller
                 ]);
             }
 
+            // 1. Log in document history
+            $document->histories()->create([
+                'performed_by' => $request->user()->id,
+                'action' => 'registered',
+                'remarks' => 'Document registered in the system.',
+                'from_office' => $document->origin_sender,
+                'to_office' => $document->office_assignment,
+            ]);
+
+            // 2. Add message/remarks if present
+            if (!empty($document->remarks)) {
+                $document->messages()->create([
+                    'user_id' => $request->user()->id,
+                    'message' => $document->remarks,
+                    'type' => 'remark',
+                ]);
+            }
+
+            // 3. Create pending acknowledgement if a user is assigned
+            if (!empty($document->assigned_user) && $document->assigned_user !== '-Select user-' && $document->assigned_user !== '-Select office first-') {
+                $assignedName = $document->assigned_user;
+                $localUser = \App\Models\User::where(function ($query) use ($assignedName) {
+                    $query->whereRaw("CONCAT(first_name, ' ', last_name) = ?", [$assignedName])
+                          ->orWhereRaw("CONCAT(first_name, ' ', middle_name, ' ', last_name) = ?", [$assignedName])
+                          ->orWhere('first_name', 'LIKE', '%' . $assignedName . '%')
+                          ->orWhere('last_name', 'LIKE', '%' . $assignedName . '%');
+                })->first();
+
+                $document->acknowledgements()->create([
+                    'user_id' => $localUser?->id,
+                    'assigned_name' => $assignedName,
+                    'remarks' => 'Pending acknowledgement.',
+                ]);
+            }
+
             return $document;
         });
 

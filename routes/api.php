@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
-use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
@@ -34,7 +33,7 @@ Route::post('/login', function (Request $request) {
 
         return response()->json([
             'message' => 'Login successful',
-            'user' => $user->load(['office', 'division', 'roles']),
+            'user' => $user->load(['office', 'division', 'permissionOverrides']),
             'must_change_password' => $user->must_change_password,
             'token' => $token,
         ], 200);
@@ -79,8 +78,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('password.changed')->group(function () {
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
-        Route::get('/roles', [RoleController::class, 'index']);
-        Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions']);
+        Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
+        Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
         Route::get('/users/{user}/history', [UserAuditController::class, 'history']);
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity']);
         Route::get('/users/{user}/security', [UserSecurityController::class, 'show']);
@@ -105,4 +104,22 @@ Route::middleware('auth:sanctum')->group(function () {
             return response()->json($user->fresh());
         });
     });
+});
+
+Route::get('/test-pmis', function () {
+    try {
+        $pdo = Illuminate\Support\Facades\DB::connection('pmis')->getPdo();
+        $data = Illuminate\Support\Facades\DB::connection('pmis')->table('vwActive')->select('office', 'divisions')->distinct()->limit(5)->get();
+        return response()->json([
+            'status' => 'success',
+            'connection' => 'Connected successfully to SSMS SQL Server!',
+            'sample_data' => $data
+        ]);
+    } catch (\Exception $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
+    }
 });

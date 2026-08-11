@@ -42,4 +42,19 @@ class Document extends Model
     {
         return $this->hasMany(DocumentAttachment::class);
     }
+
+    public function histories(): HasMany
+    {
+        return $this->hasMany(DocumentHistory::class);
+    }
+
+    public function messages(): HasMany
+    {
+        return $this->hasMany(DocumentMessage::class);
+    }
+
+    public function acknowledgements(): HasMany
+    {
+        return $this->hasMany(DocumentAcknowledgement::class);
+    }
 }

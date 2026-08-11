@@ -5,56 +5,98 @@ namespace Database\Seeders;
 use App\Models\Division;
 use App\Models\Office;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class OfficeDivisionSeeder extends Seeder
 {
+    /**
+     * Connection name pointing at the pmis2003 database.
+     * Add this in config/database.php, e.g.:
+     *
+     * 'pmis2003' => [
+     *     'driver'   => 'sqlsrv', // or 'mysql' — depends on what pmis2003 actually runs on
+     *     'host'     => env('PMIS2003_DB_HOST', '127.0.0.1'),
+     *     'port'     => env('PMIS2003_DB_PORT', '1433'),
+     *     'database' => env('PMIS2003_DB_DATABASE', 'pmis2003'),
+     *     'username' => env('PMIS2003_DB_USERNAME', ''),
+     *     'password' => env('PMIS2003_DB_PASSWORD', ''),
+     * ],
+     *
+     * And in .env:
+     * PMIS2003_DB_HOST=...
+     * PMIS2003_DB_DATABASE=pmis2003
+     * PMIS2003_DB_USERNAME=...
+     * PMIS2003_DB_PASSWORD=...
+     */
+    protected string $connection = 'pmis';
+
+    protected string $view = 'vwActive';
+
     public function run(): void
     {
-        $offices = [
-            ['code' => 'CMO', 'name' => "City Mayor's Office (CMO)", 'short_name' => 'CMO', 'divisions' => ['Executive Services', 'Business Permit and Licensing Division (BPLO)', 'City Investment Promotions and Business Enterprise Development Section (CIPBEDS)', 'Research and Management Information System (MIS) Division', 'City Information Office', 'Local Youth Development Office', 'Gender and Development (GAD) Office', 'Sports Development and Management Office', 'Traffic Management Office']],
-            ['code' => 'CEO', 'name' => 'Office of the City Engineer (CEO)', 'short_name' => 'CEO', 'divisions' => ['Administrative Services Division (ASD)', 'Building & Industrial Safety Division', 'Construction Division', 'Electrical Installation & Maintenance Division', 'Industrial Plant Division', 'Maintenance Division', 'Motorpool Division']],
-            ['code' => 'BAC', 'name' => 'Bids and Awards Committee (BAC)', 'short_name' => 'BAC', 'divisions' => ['BAC Secretariat', 'Procurement Division']],
-            ['code' => 'CVMO', 'name' => "City Vice Mayor's Office", 'short_name' => 'CVMO', 'divisions' => ['Office of the Secretary to the Sangguniang Panlungsod', 'Offices of the Sangguniang Panlungsod Members (Councilors)']],
-            ['code' => 'CPDO', 'name' => 'City Planning and Development Office (CPDO)', 'short_name' => 'CPDO', 'divisions' => ['Planning Division', 'Development Planning and Project Monitoring Functions']],
-            ['code' => 'CTO', 'name' => "City Treasurer's Office (CTO)", 'short_name' => 'CTO', 'divisions' => ['Treasury Operations', 'Cashiering', 'Collection Services', 'Revenue Collection']],
-            ['code' => 'ASSESSOR', 'name' => "City Assessor's Office (CAO)", 'short_name' => 'CAO', 'divisions' => ['Real Property Assessment', 'Tax Mapping', 'Records and Assessment Services']],
-            ['code' => 'CHRMO', 'name' => 'City Human Resource Management Office (CHRMO)', 'short_name' => 'CHRMO', 'divisions' => ['Recruitment & Selection', 'Training & Development', 'Personnel Records', 'Employee Welfare']],
-            ['code' => 'CBO', 'name' => 'City Budget Office (CBO)', 'short_name' => 'CBO', 'divisions' => ['Budget Preparation', 'Budget Monitoring', 'Budget Evaluation']],
-            ['code' => 'ACCOUNTING', 'name' => 'City Accounting Office (CAO)', 'short_name' => 'CAO', 'divisions' => ['Accounting Operations', 'Financial Reporting', 'Bookkeeping']],
-            ['code' => 'LEGAL', 'name' => 'City Legal Office', 'short_name' => 'CLO', 'divisions' => ['Legal Services', 'Legal Assistance', 'Litigation']],
-            ['code' => 'OCCR', 'name' => 'Office of the City Civil Registrar (OCCR)', 'short_name' => 'OCCR', 'divisions' => ['Birth Registration', 'Marriage Registration', 'Death Registration', 'Legal Instruments']],
-            ['code' => 'CSWDO', 'name' => 'City Social Welfare and Development Office (CSWDO)', 'short_name' => 'CSWDO', 'divisions' => ['Social Welfare Programs', 'Family & Community Welfare', 'Senior Citizens Affairs', 'Persons with Disability (PWD) Programs']],
-            ['code' => 'PESO', 'name' => 'City Public Employment and Services Office (PESO)', 'short_name' => 'PESO', 'divisions' => ['Employment Facilitation', 'Job Matching', 'Special Employment Programs', 'Livelihood Services']],
-            ['code' => 'CHLMO', 'name' => 'City Housing and Land Management Office (CHLMO)', 'short_name' => 'CHLMO', 'divisions' => ['Housing Programs', 'Land Management', 'Informal Settlers Program']],
-            ['code' => 'CIO', 'name' => 'City Information Office (CIO)', 'short_name' => 'CIO', 'divisions' => ['Public Information', 'Media Relations', 'Publications']],
-            ['code' => 'LYDO', 'name' => 'Local Youth Development Office (LYDO)', 'short_name' => 'LYDO', 'divisions' => ['Youth Development Programs', 'SK Coordination']],
-            ['code' => 'GAD', 'name' => 'Gender and Development (GAD) Office', 'short_name' => 'GAD', 'divisions' => ['GAD Planning', 'Gender Mainstreaming', "Women's Programs"]],
-        ];
+        $rows = collect();
 
-        foreach ($offices as $officeData) {
+        try {
+            $rows = DB::connection($this->connection)
+                ->table($this->view)
+                ->select('office', 'divisions')
+                ->distinct()
+                ->get();
+        } catch (\Exception $e) {
+            $this->command?->warn("Could not query {$this->connection}.{$this->view}: " . $e->getMessage());
+            $this->command?->info("Seeding fallback mock offices and divisions...");
+
+            $rows = collect([
+                (object) ['office' => 'Office of the City Mayor', 'divisions' => 'Administrative Support'],
+                (object) ['office' => 'Office of the City Mayor', 'divisions' => 'Legal Section'],
+                (object) ['office' => 'City Information and Communications Technology Management Office', 'divisions' => 'Systems Development Division'],
+                (object) ['office' => 'City Information and Communications Technology Management Office', 'divisions' => 'Network & Security Division'],
+                (object) ['office' => 'Human Resource Management Office', 'divisions' => 'Recruitment & Placement'],
+            ]);
+        }
+
+        if ($rows->isEmpty()) {
+            $this->command?->warn("No rows to sync.");
+            return;
+        }
+
+        foreach ($rows as $row) {
+            $officeName = $row->office ? trim((string) $row->office) : null;
+            $divisionName = $row->divisions ? trim((string) $row->divisions) : null;
+
+            if (!$officeName) {
+                continue;
+            }
+
+            $officeCode = Str::upper(Str::limit(Str::slug($officeName), 40, '')) . '-' . substr(md5($officeName), 0, 5);
+
             $office = Office::updateOrCreate(
-                ['code' => $officeData['code']],
+                ['name' => $officeName],
                 [
-                    'name' => $officeData['name'],
-                    'short_name' => $officeData['short_name'],
-                    'is_active' => true,
+                    'code'       => $officeCode,
+                    'short_name' => $officeName,
+                    'is_active'  => true,
                 ]
             );
 
-            foreach ($officeData['divisions'] as $divisionIndex => $divisionName) {
+            if ($divisionName) {
+                $divisionCode = Str::upper(Str::limit(Str::slug($divisionName), 40, '')) . '-' . substr(md5($divisionName), 0, 5);
+
                 Division::updateOrCreate(
                     [
                         'office_id' => $office->id,
-                        'code' => Str::upper(Str::limit(Str::slug($divisionName), 42, '')) . '-' . ($divisionIndex + 1),
+                        'name'      => $divisionName,
                     ],
                     [
-                        'name' => $divisionName,
-                        'short_name' => null,
-                        'is_active' => true,
+                        'code'       => $divisionCode,
+                        'short_name' => $divisionName,
+                        'is_active'  => true,
                     ]
                 );
             }
         }
+
+        $this->command?->info("Offices and divisions synced successfully.");
     }
 }
