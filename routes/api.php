@@ -47,7 +47,7 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        return response()->json($request->user());
+        return response()->json($request->user()->load(['office', 'division']));
     });
 
     Route::post('/change-password', function (Request $request) {
@@ -100,9 +100,68 @@ Route::middleware('auth:sanctum')->group(function () {
                 'email' => 'sometimes|nullable|email|max:255',
             ]);
 
-            $user->update($validated);
+            // 1. Resolve first name and last name from fullname
+            if (isset($validated['fullname'])) {
+                $parts = explode(' ', trim($validated['fullname']));
+                if (count($parts) > 1) {
+                    $user->last_name = array_pop($parts);
+                    $user->first_name = implode(' ', $parts);
+                } else {
+                    $user->first_name = $validated['fullname'];
+                    $user->last_name = '';
+                }
+            }
 
-            return response()->json($user->fresh());
+            // 2. Resolve Office ID
+            if (isset($validated['office'])) {
+                $officeName = trim($validated['office']);
+                if (empty($officeName) || $officeName === 'N/A' || $officeName === '—') {
+                    $user->office_id = null;
+                } else {
+                    $office = \App\Models\Office::firstOrCreate(
+                        ['name' => $officeName],
+                        [
+                            'code' => strtoupper(\Illuminate\Support\Str::slug($officeName)) . '-' . substr(md5($officeName), 0, 5),
+                            'short_name' => $officeName,
+                            'is_active' => true,
+                        ]
+                    );
+                    $user->office_id = $office->id;
+                }
+            }
+
+            // 3. Resolve Division ID
+            if (isset($validated['division'])) {
+                $divisionName = trim($validated['division']);
+                if (empty($divisionName) || $divisionName === 'N/A' || $divisionName === '—') {
+                    $user->division_id = null;
+                } else {
+                    $division = \App\Models\Division::firstOrCreate(
+                        [
+                            'office_id' => $user->office_id,
+                            'name' => $divisionName,
+                        ],
+                        [
+                            'code' => strtoupper(\Illuminate\Support\Str::slug($divisionName)) . '-' . substr(md5($divisionName), 0, 5),
+                            'short_name' => $divisionName,
+                            'is_active' => true,
+                        ]
+                    );
+                    $user->division_id = $division->id;
+                }
+            }
+
+            // 4. Update position & email
+            if (isset($validated['position'])) {
+                $user->position = $validated['position'];
+            }
+            if (isset($validated['email'])) {
+                $user->email = $validated['email'];
+            }
+
+            $user->save();
+
+            return response()->json($user->load(['office', 'division']));
         });
     });
 });
