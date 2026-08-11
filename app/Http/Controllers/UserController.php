@@ -18,8 +18,7 @@ class UserController extends Controller
     public function index(Request $request)
     {
         $users = User::query()
-            ->with(['office', 'division'])
-            ->with(['permissionOverrides'])
+            ->with(['office', 'division', 'roles'])
             ->when($request->filled('office_id'), fn ($query) => $query->where('office_id', (string) $request->input('office_id')))
             ->when($request->filled('division_id'), fn ($query) => $query->where('division_id', (string) $request->input('division_id')))
             ->when($request->filled('role'), fn ($query) => $query->role((string) $request->input('role')))
@@ -54,7 +53,7 @@ class UserController extends Controller
             return $user;
         });
 
-        $resource = (new UserResource($user->load(['office', 'division', 'permissionOverrides'])))->resolve();
+        $resource = (new UserResource($user->load(['office', 'division', 'roles'])))->resolve();
         $resource['temporary_password'] = $this->temporaryPasswordFromBirthdate($user->birthdate);
 
         return response()->json($resource, 201);
@@ -92,7 +91,7 @@ class UserController extends Controller
             return $user;
         });
 
-        return (new UserResource($user->load(['office', 'division', 'permissionOverrides'])))->response();
+        return (new UserResource($user->load(['office', 'division', 'roles'])))->response();
     }
 
     public function destroy(Request $request, User $user, AuditService $audit): JsonResponse
@@ -123,30 +122,6 @@ class UserController extends Controller
     {
         if ($request->filled('role')) {
             $user->syncRoles([(string) $request->input('role')]);
-        }
-
-        if ($request->filled('permissions')) {
-            $user->syncPermissions($request->input('permissions', []));
-        }
-
-        if ($request->has('permission_overrides')) {
-            $user->permissionOverrides()->delete();
-
-            foreach ($request->input('permission_overrides', []) as $override) {
-                $user->permissionOverrides()->create([
-                    'permission_name' => $override['name'],
-                    'effect' => $override['effect'],
-                ]);
-            }
-
-            $allowedOverrides = collect($request->input('permission_overrides', []))
-                ->where('effect', 'allow')
-                ->pluck('name')
-                ->all();
-
-            if ($allowedOverrides !== []) {
-                $user->givePermissionTo($allowedOverrides);
-            }
         }
     }
 
@@ -182,6 +157,7 @@ class UserController extends Controller
             'office_id' => 'office',
             'division_id' => 'division',
             'position' => 'position',
+            'employment_status' => 'employment status',
             'email' => 'email',
             'is_active' => 'account status',
             'role' => 'role',

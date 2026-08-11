@@ -43,15 +43,11 @@ class UpdateUserRequest extends FormRequest
             'employee_id' => ['nullable', 'string', 'max:255'],
             'birthdate' => ['nullable', 'date'],
             'position' => ['nullable', 'string', 'max:255'],
+            'employment_status' => ['nullable', 'string', Rule::in(['Permanent', 'Casual', 'Contractual', 'Job Order', 'Co-Terminus', 'Honorarium', 'regular', 'casual', 'contractual', 'honorarium', 'co-terminous'])],
             'avatar_url' => ['nullable', 'url'],
             'email' => ['nullable', 'email', 'max:255'],
             'is_active' => ['boolean'],
             'role' => ['nullable', 'string', Rule::exists('roles', 'name')],
-            'permissions' => ['nullable', 'array'],
-            'permissions.*' => ['string', Rule::exists('permissions', 'name')],
-            'permission_overrides' => ['nullable', 'array'],
-            'permission_overrides.*.name' => ['required_with:permission_overrides', 'string', Rule::exists('permissions', 'name')],
-            'permission_overrides.*.effect' => ['required_with:permission_overrides', Rule::in(['allow', 'deny'])],
         ];
     }
 }
