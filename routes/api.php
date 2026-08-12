@@ -81,13 +81,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
-        Route::get('/users/{user}/history', [UserAuditController::class, 'history']);
-        Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory']);
-        Route::get('/users/{user}/activity', [UserAuditController::class, 'activity']);
-        Route::get('/users/{user}/security', [UserSecurityController::class, 'show']);
-        Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword']);
-        Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession']);
-        Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions']);
+        Route::get('/users/{user}/history', [UserAuditController::class, 'history'])->withTrashed();
+        Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
+        Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
+        Route::get('/users/{user}/security', [UserSecurityController::class, 'show'])->withTrashed();
+        Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword'])->withTrashed();
+        Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession'])->withTrashed();
+        Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions'])->withTrashed();
         Route::apiResource('users', UserController::class);
 
         Route::put('/me', function (Request $request) {

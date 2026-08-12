@@ -31,7 +31,7 @@ class StoreUserRequest extends FormRequest
         }
 
         return [
-            'username' => ['required', 'string', 'max:255', 'unique:users,username'],
+            'username' => ['required', 'string', 'max:255', Rule::unique('users', 'username')->whereNull('deleted_at')],
             'first_name' => ['required', 'string', 'max:255'],
             'last_name' => ['required', 'string', 'max:255'],
             'office_id' => ['required', 'uuid', Rule::exists('offices', 'id')],

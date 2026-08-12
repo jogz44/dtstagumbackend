@@ -30,6 +30,6 @@ class ActivityEvent extends Model
 
     public function actorUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'actor_user_id');
+        return $this->belongsTo(User::class, 'actor_user_id')->withTrashed();
     }
 }

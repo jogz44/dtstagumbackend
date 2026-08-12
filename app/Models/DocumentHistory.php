@@ -87,17 +87,17 @@ class DocumentHistory extends Model
 
     public function user(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'performed_by');
+        return $this->belongsTo(User::class, 'performed_by')->withTrashed();
     }
 
     public function fromUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'from_user_id');
+        return $this->belongsTo(User::class, 'from_user_id')->withTrashed();
     }
 
     public function toUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'to_user_id');
+        return $this->belongsTo(User::class, 'to_user_id')->withTrashed();
     }
 
     public function fromDivision(): BelongsTo

@@ -34,7 +34,7 @@ class UpdateUserRequest extends FormRequest
         }
 
         return [
-            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)],
+            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)->whereNull('deleted_at')],
             'password' => ['sometimes', 'nullable', 'string', 'min:7'],
             'first_name' => ['sometimes', 'string', 'max:255'],
             'last_name' => ['sometimes', 'string', 'max:255'],
