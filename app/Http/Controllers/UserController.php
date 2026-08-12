@@ -51,6 +51,18 @@ class UserController extends Controller
                 $request,
             );
 
+            $audit->activity(
+                $request->user(),
+                'account.created',
+                'User Management',
+                "Created user account for {$user->first_name} {$user->last_name}.",
+                $request,
+                [
+                    'resource_type' => 'User',
+                    'resource_id' => $user->id,
+                ],
+            );
+
             return $user;
         });
 
@@ -66,6 +78,10 @@ class UserController extends Controller
             $before = $audit->userSnapshot($user->loadMissing('roles'));
             $validated = $request->validated();
 
+            if ($user->hasRole('super_admin')) {
+                unset($validated['role'], $validated['is_active']);
+            }
+
             if (array_key_exists('password', $validated) && filled($validated['password'] ?? null)) {
                 $validated['password'] = Hash::make($validated['password']);
             } else {
@@ -79,13 +95,27 @@ class UserController extends Controller
             $changes = $audit->diffSnapshots($before, $audit->userSnapshot($user->loadMissing('roles')));
 
             if ($changes !== []) {
+                $eventType = $this->accountUpdateEventType($changes);
+
                 $audit->accountHistory(
                     $user,
                     $request->user(),
-                    $this->accountUpdateEventType($changes),
+                    $eventType,
                     $this->accountUpdateSummary($changes),
                     $changes,
                     $request,
+                );
+
+                $audit->activity(
+                    $request->user(),
+                    $eventType,
+                    'User Management',
+                    "Updated profile information for {$user->first_name} {$user->last_name}.",
+                    $request,
+                    [
+                        'resource_type' => 'User',
+                        'resource_id' => $user->id,
+                    ],
                 );
             }
 
@@ -142,29 +172,29 @@ class UserController extends Controller
         return Carbon::parse($birthdate)->format('mdY');
     }
 
-    private function syncAuthorizationState(User $user, Request $request): void
-    {
-        $role = $request->filled('role')
-            ? (string) $request->input('role')
-            : $this->defaultRoleName();
+   private function syncAuthorizationState(User $user, Request $request): void
+{
+    $role = $request->filled('role')
+        ? (string) $request->input('role')
+        : $this->defaultRoleName();
 
-        if ($role !== null) {
-            $user->syncRoles([$role]);
-        }
+    if ($role !== null) {
+        $user->syncRoles([$role]);
+    }
+}
+
+private function defaultRoleName(): ?string
+{
+    if (DB::table('roles')->where('name', RoleNames::RECEIVER)->exists()) {
+        return RoleNames::RECEIVER;
     }
 
-    private function defaultRoleName(): ?string
-    {
-        if (DB::table('roles')->where('name', RoleNames::RECEIVER)->exists()) {
-            return RoleNames::RECEIVER;
-        }
-
-        if (DB::table('roles')->where('name', RoleNames::SUPERVISOR)->exists()) {
-            return RoleNames::SUPERVISOR;
-        }
-
-        return null;
+    if (DB::table('roles')->where('name', RoleNames::SUPERVISOR)->exists()) {
+        return RoleNames::SUPERVISOR;
     }
+
+    return null;
+}
 
     private function accountUpdateEventType(array $changes): string
     {

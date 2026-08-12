@@ -379,6 +379,63 @@ class UserActivityApiTest extends TestCase
         $this->assertStringNotContainsString('secret', strtolower($content));
     }
 
+    public function test_creating_user_records_account_created_in_admin_activity_log(): void
+    {
+        $admin = $this->createSuperAdmin();
+        Sanctum::actingAs($admin);
+
+        $office = Office::firstOrCreate(['code' => 'CMO'], ['name' => "City Mayor's Office", 'is_active' => true]);
+        $division = Division::firstOrCreate(['office_id' => $office->id, 'code' => 'ADMIN'], ['name' => 'Administrative Division', 'is_active' => true]);
+        Role::firstOrCreate(['name' => 'user', 'guard_name' => 'web']);
+
+        $payload = [
+            'username' => 'juandelacruz',
+            'first_name' => 'Juan',
+            'last_name' => 'Dela Cruz',
+            'birthdate' => '1995-05-15',
+            'office_id' => $office->id,
+            'division_id' => $division->id,
+            'role' => 'user',
+            'is_active' => true,
+        ];
+
+        $response = $this->postJson('/api/users', $payload);
+        $response->assertStatus(201);
+
+        $createdUserId = $response->json('id');
+        $this->assertNotNull($createdUserId);
+
+        $this->assertDatabaseHas('activity_events', [
+            'actor_user_id' => $admin->id,
+            'activity_type' => 'account.created',
+            'module' => 'User Management',
+            'resource_type' => 'User',
+            'resource_id' => (string) $createdUserId,
+            'outcome' => 'success',
+            'description' => 'Created user account for Juan Dela Cruz.',
+        ]);
+
+        $adminActivityResponse = $this->getJson("/api/users/{$admin->id}/activity");
+        $adminActivityResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.activity_type', 'account.created')
+            ->assertJsonPath('data.0.module', 'User Management')
+            ->assertJsonPath('data.0.description', 'Created user account for Juan Dela Cruz.')
+            ->assertJsonPath('data.0.actor.id', $admin->id)
+            ->assertJsonPath('data.0.actor.name', $admin->full_name);
+
+        $userActivityResponse = $this->getJson("/api/users/{$createdUserId}/activity");
+        $userActivityResponse
+            ->assertOk()
+            ->assertJsonCount(0, 'data');
+
+        $userHistoryResponse = $this->getJson("/api/users/{$createdUserId}/history");
+        $userHistoryResponse
+            ->assertOk()
+            ->assertJsonPath('data.0.event_type', 'account.created')
+            ->assertJsonPath('data.0.changed_by', $admin->full_name);
+    }
+
     private function createSuperAdmin(): User
     {
         $role = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
