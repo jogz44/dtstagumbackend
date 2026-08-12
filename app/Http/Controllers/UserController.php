@@ -18,6 +18,7 @@ class UserController extends Controller
     public function index(Request $request)
     {
         $users = User::query()
+            ->withTrashed()
             ->with(['office', 'division', 'roles'])
             ->when($request->filled('office_id'), fn ($query) => $query->where('office_id', (string) $request->input('office_id')))
             ->when($request->filled('division_id'), fn ($query) => $query->where('division_id', (string) $request->input('division_id')))

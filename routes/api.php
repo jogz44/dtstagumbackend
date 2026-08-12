@@ -88,7 +88,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword'])->withTrashed();
         Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession'])->withTrashed();
         Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions'])->withTrashed();
-        Route::apiResource('users', UserController::class);
+        Route::apiResource('users', UserController::class)->withTrashed();
 
         Route::put('/me', function (Request $request) {
             $user = $request->user();
