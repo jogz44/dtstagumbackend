@@ -18,7 +18,6 @@ class UserController extends Controller
     public function index(Request $request)
     {
         $users = User::query()
-            ->withTrashed()
             ->with(['office', 'division', 'roles'])
             ->when($request->filled('office_id'), fn ($query) => $query->where('office_id', (string) $request->input('office_id')))
             ->when($request->filled('division_id'), fn ($query) => $query->where('division_id', (string) $request->input('division_id')))
@@ -124,8 +123,6 @@ class UserController extends Controller
         DB::transaction(function () use ($request, $authUser, $user, $audit) {
             $user->tokens()->delete();
 
-            $user->forceFill(['is_active' => false])->save();
-
             $audit->accountHistory(
                 $user,
                 $authUser,
@@ -143,7 +140,17 @@ class UserController extends Controller
                 $request,
             );
 
-            $user->delete();
+            try {
+                // Delete overrides and detach roles to prevent Spatie relation constraints
+                $user->permissionOverrides()->delete();
+                $user->roles()->detach();
+
+                $user->forceDelete(); // Attempt permanent hard delete
+            } catch (\Exception $e) {
+                // Fallback to soft delete + deactivate if database has foreign key constraints (e.g. document history)
+                $user->forceFill(['is_active' => false])->save();
+                $user->delete();
+            }
         });
 
         return response()->json(['message' => 'User account deleted successfully.']);
