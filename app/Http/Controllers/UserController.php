@@ -50,6 +50,18 @@ class UserController extends Controller
                 $request,
             );
 
+            $audit->activity(
+                $request->user(),
+                'account.created',
+                'User Management',
+                "Created user account for {$user->first_name} {$user->last_name}.",
+                $request,
+                [
+                    'resource_type' => 'User',
+                    'resource_id' => $user->id,
+                ],
+            );
+
             return $user;
         });
 
