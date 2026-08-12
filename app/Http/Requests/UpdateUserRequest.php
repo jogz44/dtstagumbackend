@@ -9,12 +9,53 @@ class UpdateUserRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        $this->merge([
-            'employee_id' => $this->input('employee_id', $this->input('employeeId')),
-            'office_id' => $this->input('office_id', $this->input('officeId')),
-            'division_id' => $this->input('division_id', $this->input('divisionId')),
-            'is_active' => $this->input('is_active', $this->has('status') ? strtolower((string) $this->input('status')) === 'active' : $this->input('is_active')),
-        ]);
+        $input = [];
+
+        if ($this->has('employeeId') && ! $this->has('employee_id')) {
+            $input['employee_id'] = $this->input('employeeId');
+        }
+
+        if ($this->has('officeId') && ! $this->has('office_id')) {
+            $input['office_id'] = $this->input('officeId');
+        }
+
+        if ($this->has('divisionId') && ! $this->has('division_id')) {
+            $input['division_id'] = $this->input('divisionId');
+        }
+
+        $rawActive = $this->has('is_active')
+            ? $this->input('is_active')
+            : ($this->has('status') ? $this->input('status') : null);
+
+        if ($rawActive !== null) {
+            $normalized = $this->normalizeBoolean($rawActive);
+            if ($normalized !== null) {
+                $input['is_active'] = $normalized;
+            } else {
+                $input['is_active'] = $rawActive;
+            }
+        }
+
+        if ($input !== []) {
+            $this->merge($input);
+        }
+    }
+
+    private function normalizeBoolean(mixed $value): ?bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if ($value === 1 || $value === '1' || $value === 'true' || $value === 'Active' || $value === 'active') {
+            return true;
+        }
+
+        if ($value === 0 || $value === '0' || $value === 'false' || $value === 'Inactive' || $value === 'inactive') {
+            return false;
+        }
+
+        return null;
     }
 
     public function authorize(): bool
@@ -46,7 +87,7 @@ class UpdateUserRequest extends FormRequest
             'employment_status' => ['nullable', 'string', Rule::in(['Permanent', 'Regular', 'Casual', 'Contractual', 'Job Order', 'Co-Terminus', 'Honorarium', 'regular', 'casual', 'contractual', 'honorarium', 'co-terminous', 'co-terminus', 'job order'])],
             'avatar_url' => ['nullable', 'url'],
             'email' => ['nullable', 'email', 'max:255'],
-            'is_active' => ['boolean'],
+            'is_active' => ['sometimes', 'boolean'],
             'role' => ['nullable', 'string', Rule::exists('roles', 'name')],
         ];
     }

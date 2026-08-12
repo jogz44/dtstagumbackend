@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -77,6 +78,10 @@ class UserController extends Controller
             $before = $audit->userSnapshot($user->loadMissing('roles'));
             $validated = $request->validated();
 
+            if ($user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN)) {
+                unset($validated['role'], $validated['is_active']);
+            }
+
             if (array_key_exists('password', $validated) && filled($validated['password'] ?? null)) {
                 $validated['password'] = Hash::make($validated['password']);
             } else {
@@ -90,13 +95,27 @@ class UserController extends Controller
             $changes = $audit->diffSnapshots($before, $audit->userSnapshot($user->loadMissing('roles')));
 
             if ($changes !== []) {
+                $eventType = $this->accountUpdateEventType($changes);
+
                 $audit->accountHistory(
                     $user,
                     $request->user(),
-                    $this->accountUpdateEventType($changes),
+                    $eventType,
                     $this->accountUpdateSummary($changes),
                     $changes,
                     $request,
+                );
+
+                $audit->activity(
+                    $request->user(),
+                    $eventType,
+                    'User Management',
+                    "Updated profile information for {$user->first_name} {$user->last_name}.",
+                    $request,
+                    [
+                        'resource_type' => 'User',
+                        'resource_id' => $user->id,
+                    ],
                 );
             }
 
@@ -110,7 +129,7 @@ class UserController extends Controller
     {
         $authUser = $request->user();
 
-        if (! $authUser->hasRole('super_admin') && ! $authUser->hasPermissionTo('users.manage')) {
+        if (! $authUser->hasRole(RoleNames::ADMIN) && ! $authUser->hasPermissionTo('users.manage')) {
             abort(403, 'You are not authorized to delete user accounts.');
         }
 
@@ -161,11 +180,28 @@ class UserController extends Controller
         return Carbon::parse($birthdate)->format('mdY');
     }
 
-    private function syncAuthorizationState(User $user, Request $request): void
+   private function syncAuthorizationState(User $user, Request $request): void
     {
-        if ($request->filled('role')) {
-            $user->syncRoles([(string) $request->input('role')]);
+        $role = $request->filled('role')
+            ? (string) $request->input('role')
+            : $this->defaultRoleName();
+
+        if ($role !== null) {
+            $user->syncRoles([$role]);
         }
+    }
+
+    private function defaultRoleName(): ?string
+    {
+        if (DB::table('roles')->where('name', RoleNames::RECEIVER)->exists()) {
+            return RoleNames::RECEIVER;
+        }
+
+        if (DB::table('roles')->where('name', RoleNames::SUPERVISOR)->exists()) {
+            return RoleNames::SUPERVISOR;
+        }
+
+        return null;
     }
 
     private function accountUpdateEventType(array $changes): string

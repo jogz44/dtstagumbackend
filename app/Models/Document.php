@@ -7,6 +7,16 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
+/**
+ * @property string $id
+ * @property string $tracking_number
+ * @property string|null $created_by
+ * @property string|null $description
+ * @property string|null $document_type
+ * @property string|null $priority_level
+ * @property string|null $status
+ * @property bool $is_confidential
+ */
 class Document extends Model
 {
     use HasUuids;
@@ -35,7 +45,7 @@ class Document extends Model
 
     public function creator(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'created_by');
+        return $this->belongsTo(User::class, 'created_by')->withTrashed();
     }
 
     public function attachments(): HasMany

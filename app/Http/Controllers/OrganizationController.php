@@ -109,7 +109,7 @@ class OrganizationController extends Controller
                 $localUsers = \App\Models\User::where('office_id', $office->id)
                     ->where('is_active', true)
                     ->get();
-                
+
                 if ($localUsers->isNotEmpty()) {
                     $users = $localUsers->map(fn($u) => $u->first_name . ' ' . $u->last_name)->all();
                 }

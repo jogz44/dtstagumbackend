@@ -116,16 +116,19 @@ return [
 
         'pmis' => [
             'driver' => 'sqlsrv',
-            'host' => env('DB_PMIS_HOST', 'localhost'),
+            'url' => env('DB_PMIS_URL'),
+            'host' => env('DB_PMIS_HOST', '10.0.1.35'),
             'port' => env('DB_PMIS_PORT', '1433'),
             'database' => env('DB_PMIS_DATABASE', 'pmis2003'),
-            'username' => env('DB_PMIS_USERNAME', ''),
+            'username' => env('DB_PMIS_USERNAME', 'hris'),
             'password' => env('DB_PMIS_PASSWORD', ''),
-            'charset' => env('DB_CHARSET', 'utf8'),
+            'charset' => env('DB_PMIS_CHARSET', 'utf8'),
             'prefix' => '',
             'prefix_indexes' => true,
-            'encrypt' => env('DB_PMIS_ENCRYPT', 'yes'),
-            'trust_server_certificate' => env('DB_PMIS_TRUST_SERVER_CERTIFICATE', 'true'),
+            'timeout' => (int) env('DB_PMIS_TIMEOUT', 15),
+            'options' => [
+                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+            ],
         ],
 
     ],
