@@ -39,7 +39,7 @@ class StoreUserRequest extends FormRequest
             'employee_id' => ['nullable', 'string', 'max:255'],
             'birthdate' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
             'position' => ['nullable', 'string', 'max:255'],
-            'employment_status' => ['nullable', 'string', Rule::in(['Permanent', 'Casual', 'Contractual', 'Job Order', 'Co-Terminus', 'Honorarium', 'regular', 'casual', 'contractual', 'honorarium', 'co-terminous'])],
+            'employment_status' => ['nullable', 'string', Rule::in(['Permanent', 'Regular', 'Casual', 'Contractual', 'Job Order', 'Co-Terminus', 'Honorarium', 'regular', 'casual', 'contractual', 'honorarium', 'co-terminous', 'co-terminus', 'job order'])],
             'avatar_url' => ['nullable', 'url'],
             'email' => ['nullable', 'email', 'max:255'],
             'is_active' => ['boolean'],
