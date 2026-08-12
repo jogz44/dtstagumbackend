@@ -77,6 +77,10 @@ class UserController extends Controller
             $before = $audit->userSnapshot($user->loadMissing('roles'));
             $validated = $request->validated();
 
+            if ($user->hasRole('super_admin')) {
+                unset($validated['role'], $validated['is_active']);
+            }
+
             if (array_key_exists('password', $validated) && filled($validated['password'] ?? null)) {
                 $validated['password'] = Hash::make($validated['password']);
             } else {
@@ -90,13 +94,27 @@ class UserController extends Controller
             $changes = $audit->diffSnapshots($before, $audit->userSnapshot($user->loadMissing('roles')));
 
             if ($changes !== []) {
+                $eventType = $this->accountUpdateEventType($changes);
+
                 $audit->accountHistory(
                     $user,
                     $request->user(),
-                    $this->accountUpdateEventType($changes),
+                    $eventType,
                     $this->accountUpdateSummary($changes),
                     $changes,
                     $request,
+                );
+
+                $audit->activity(
+                    $request->user(),
+                    $eventType,
+                    'User Management',
+                    "Updated profile information for {$user->first_name} {$user->last_name}.",
+                    $request,
+                    [
+                        'resource_type' => 'User',
+                        'resource_id' => $user->id,
+                    ],
                 );
             }
 
@@ -156,6 +174,9 @@ class UserController extends Controller
     private function syncAuthorizationState(User $user, Request $request): void
     {
         if ($request->filled('role')) {
+            if ($user->hasRole('super_admin')) {
+                return;
+            }
             $user->syncRoles([(string) $request->input('role')]);
         }
     }
