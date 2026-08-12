@@ -47,7 +47,7 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        return response()->json($request->user()->load(['office', 'division']));
+        return response()->json($request->user());
     });
 
     Route::post('/change-password', function (Request $request) {
@@ -77,16 +77,17 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed')->group(function () {
         Route::post('/documents', [DocumentController::class, 'store']);
-        Route::get('/documents', [DocumentController::class, 'index']);
+        Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
-        Route::get('/users/{user}/history', [UserAuditController::class, 'history']);
-        Route::get('/users/{user}/activity', [UserAuditController::class, 'activity']);
-        Route::get('/users/{user}/security', [UserSecurityController::class, 'show']);
-        Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword']);
-        Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession']);
-        Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions']);
+        Route::get('/users/{user}/history', [UserAuditController::class, 'history'])->withTrashed();
+        Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
+        Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
+        Route::get('/users/{user}/security', [UserSecurityController::class, 'show'])->withTrashed();
+        Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword'])->withTrashed();
+        Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession'])->withTrashed();
+        Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions'])->withTrashed();
         Route::apiResource('users', UserController::class);
 
         Route::put('/me', function (Request $request) {
@@ -100,68 +101,9 @@ Route::middleware('auth:sanctum')->group(function () {
                 'email' => 'sometimes|nullable|email|max:255',
             ]);
 
-            // 1. Resolve first name and last name from fullname
-            if (isset($validated['fullname'])) {
-                $parts = explode(' ', trim($validated['fullname']));
-                if (count($parts) > 1) {
-                    $user->last_name = array_pop($parts);
-                    $user->first_name = implode(' ', $parts);
-                } else {
-                    $user->first_name = $validated['fullname'];
-                    $user->last_name = '';
-                }
-            }
+            $user->update($validated);
 
-            // 2. Resolve Office ID
-            if (isset($validated['office'])) {
-                $officeName = trim($validated['office']);
-                if (empty($officeName) || $officeName === 'N/A' || $officeName === '—') {
-                    $user->office_id = null;
-                } else {
-                    $office = \App\Models\Office::firstOrCreate(
-                        ['name' => $officeName],
-                        [
-                            'code' => strtoupper(\Illuminate\Support\Str::slug($officeName)) . '-' . substr(md5($officeName), 0, 5),
-                            'short_name' => $officeName,
-                            'is_active' => true,
-                        ]
-                    );
-                    $user->office_id = $office->id;
-                }
-            }
-
-            // 3. Resolve Division ID
-            if (isset($validated['division'])) {
-                $divisionName = trim($validated['division']);
-                if (empty($divisionName) || $divisionName === 'N/A' || $divisionName === '—') {
-                    $user->division_id = null;
-                } else {
-                    $division = \App\Models\Division::firstOrCreate(
-                        [
-                            'office_id' => $user->office_id,
-                            'name' => $divisionName,
-                        ],
-                        [
-                            'code' => strtoupper(\Illuminate\Support\Str::slug($divisionName)) . '-' . substr(md5($divisionName), 0, 5),
-                            'short_name' => $divisionName,
-                            'is_active' => true,
-                        ]
-                    );
-                    $user->division_id = $division->id;
-                }
-            }
-
-            // 4. Update position & email
-            if (isset($validated['position'])) {
-                $user->position = $validated['position'];
-            }
-            if (isset($validated['email'])) {
-                $user->email = $validated['email'];
-            }
-
-            $user->save();
-
-            return response()->json($user->load(['office', 'division']));
+            return response()->json($user->fresh());
         });
     });
 });
