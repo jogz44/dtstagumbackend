@@ -7,6 +7,7 @@ use App\Http\Requests\UpdateUserRequest;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -98,7 +99,7 @@ class UserController extends Controller
     {
         $authUser = $request->user();
 
-        if (! $authUser->hasRole('super_admin') && ! $authUser->hasPermissionTo('users.manage')) {
+        if (! $authUser->hasRole(RoleNames::ADMIN) && ! $authUser->hasPermissionTo('users.manage')) {
             abort(403, 'You are not authorized to delete user accounts.');
         }
 
@@ -143,9 +144,26 @@ class UserController extends Controller
 
     private function syncAuthorizationState(User $user, Request $request): void
     {
-        if ($request->filled('role')) {
-            $user->syncRoles([(string) $request->input('role')]);
+        $role = $request->filled('role')
+            ? (string) $request->input('role')
+            : $this->defaultRoleName();
+
+        if ($role !== null) {
+            $user->syncRoles([$role]);
         }
+    }
+
+    private function defaultRoleName(): ?string
+    {
+        if (DB::table('roles')->where('name', RoleNames::RECEIVER)->exists()) {
+            return RoleNames::RECEIVER;
+        }
+
+        if (DB::table('roles')->where('name', RoleNames::SUPERVISOR)->exists()) {
+            return RoleNames::SUPERVISOR;
+        }
+
+        return null;
     }
 
     private function accountUpdateEventType(array $changes): string

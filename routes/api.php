@@ -81,6 +81,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
+        Route::put('/roles/{role}/permissions', [\App\Http\Controllers\RoleController::class, 'updatePermissions']);
         Route::get('/users/{user}/history', [UserAuditController::class, 'history'])->withTrashed();
         Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();

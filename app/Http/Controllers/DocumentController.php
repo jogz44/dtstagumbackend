@@ -8,6 +8,7 @@ use App\Models\DocumentHistory;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\UserAuditAccess;
+use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -159,7 +160,7 @@ class DocumentController extends Controller
 
     private function authorizeTimelineRead(User $authUser, Document $document, UserAuditAccess $access): void
     {
-        if ($authUser->hasRole('super_admin')) {
+        if ($authUser->hasRole(RoleNames::ADMIN)) {
             return;
         }
 

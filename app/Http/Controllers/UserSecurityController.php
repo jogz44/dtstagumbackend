@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\User;
 use App\Services\AuditService;
+use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -185,12 +186,12 @@ class UserSecurityController extends Controller
 
     private function authorizeSecurityRead(User $authUser, User $targetUser): void
     {
-        if ($authUser->hasRole('super_admin') || $authUser->id === $targetUser->id) {
+        if ($authUser->hasRole(RoleNames::ADMIN) || $authUser->id === $targetUser->id) {
             return;
         }
 
         if (
-            $authUser->hasRole('supervisor')
+            $authUser->hasRole(RoleNames::SUPERVISOR)
             && $authUser->office_id === $targetUser->office_id
             && $authUser->division_id === $targetUser->division_id
         ) {
@@ -202,7 +203,7 @@ class UserSecurityController extends Controller
 
     private function authorizeSecurityAction(User $authUser, ?User $targetUser = null): void
     {
-        if ($authUser->hasRole('super_admin')) {
+        if ($authUser->hasRole(RoleNames::ADMIN)) {
             return;
         }
 
