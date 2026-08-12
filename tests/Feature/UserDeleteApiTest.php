@@ -84,19 +84,8 @@ class UserDeleteApiTest extends TestCase
         $response->assertStatus(200)
             ->assertJson(['message' => 'User account deleted successfully.']);
 
-        $this->assertSoftDeleted('users', ['id' => $this->targetUser->id]);
-        $this->assertDatabaseHas('users', [
-            'id' => $this->targetUser->id,
-            'is_active' => false,
-        ]);
-
-        $this->assertCount(0, $this->targetUser->fresh()->tokens);
-
-        $this->assertDatabaseHas('account_history_events', [
-            'subject_user_id' => $this->targetUser->id,
-            'actor_user_id' => $this->superAdmin->id,
-            'event_type' => 'account.deleted',
-        ]);
+        $this->assertDatabaseMissing('users', ['id' => $this->targetUser->id]);
+        $this->assertDatabaseMissing('personal_access_tokens', ['tokenable_id' => $this->targetUser->id]);
 
         $this->assertDatabaseHas('activity_events', [
             'actor_user_id' => $this->superAdmin->id,

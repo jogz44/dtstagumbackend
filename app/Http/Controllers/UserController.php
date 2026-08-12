@@ -159,16 +159,21 @@ class UserController extends Controller
                 $request,
             );
 
-            try {
+            $hasHistory = DB::table('documents')->where('created_by', $user->id)->exists()
+                || DB::table('document_histories')->where('performed_by', $user->id)->orWhere('from_user_id', $user->id)->orWhere('to_user_id', $user->id)->exists()
+                || DB::table('document_messages')->where('user_id', $user->id)->exists()
+                || DB::table('document_acknowledgements')->where('user_id', $user->id)->exists();
+
+            if ($hasHistory) {
+                // Fallback to soft delete + deactivate if database has tracking history
+                $user->forceFill(['is_active' => false])->save();
+                $user->delete();
+            } else {
                 // Delete overrides and detach roles to prevent Spatie relation constraints
                 $user->permissionOverrides()->delete();
                 $user->roles()->detach();
 
                 $user->forceDelete(); // Attempt permanent hard delete
-            } catch (\Exception $e) {
-                // Fallback to soft delete + deactivate if database has foreign key constraints (e.g. document history)
-                $user->forceFill(['is_active' => false])->save();
-                $user->delete();
             }
         });
 
@@ -180,8 +185,13 @@ class UserController extends Controller
         return Carbon::parse($birthdate)->format('mdY');
     }
 
-   private function syncAuthorizationState(User $user, Request $request): void
+    private function syncAuthorizationState(User $user, Request $request): void
     {
+        // Protected admin/super_admin roles cannot be modified via user updates
+        if ($user->exists && ($user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN))) {
+            return;
+        }
+
         $role = $request->filled('role')
             ? (string) $request->input('role')
             : $this->defaultRoleName();
