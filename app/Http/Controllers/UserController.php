@@ -50,6 +50,18 @@ class UserController extends Controller
                 $request,
             );
 
+            $audit->activity(
+                $request->user(),
+                'account.created',
+                'User Management',
+                "Created user account for {$user->first_name} {$user->last_name}.",
+                $request,
+                [
+                    'resource_type' => 'User',
+                    'resource_id' => $user->id,
+                ],
+            );
+
             return $user;
         });
 
@@ -96,21 +108,44 @@ class UserController extends Controller
 
     public function destroy(Request $request, User $user, AuditService $audit): JsonResponse
     {
-        DB::transaction(function () use ($request, $user, $audit) {
+        $authUser = $request->user();
+
+        if (! $authUser->hasRole('super_admin') && ! $authUser->hasPermissionTo('users.manage')) {
+            abort(403, 'You are not authorized to delete user accounts.');
+        }
+
+        if ($authUser->id === $user->id) {
+            return response()->json([
+                'message' => 'You cannot delete your own account.',
+            ], 422);
+        }
+
+        DB::transaction(function () use ($request, $authUser, $user, $audit) {
             $user->tokens()->delete();
-            $user->delete();
+
+            $user->forceFill(['is_active' => false])->save();
 
             $audit->accountHistory(
                 $user,
-                $request->user(),
-                'account.deactivated',
-                'User account was deactivated.',
+                $authUser,
+                'account.deleted',
+                'User account was deleted.',
                 [],
                 $request,
             );
+
+            $audit->activity(
+                $authUser,
+                'account.deleted',
+                'User Management',
+                "Deleted user account for {$user->first_name} {$user->last_name}.",
+                $request,
+            );
+
+            $user->delete();
         });
 
-        return response()->json(['message' => 'User soft-deleted successfully.']);
+        return response()->json(['message' => 'User account deleted successfully.']);
     }
 
     private function temporaryPasswordFromBirthdate(string|Carbon $birthdate): string

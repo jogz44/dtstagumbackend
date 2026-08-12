@@ -7,6 +7,7 @@ use App\Services\AuditService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class UserSecurityController extends Controller
@@ -53,6 +54,12 @@ class UserSecurityController extends Controller
     {
         $this->authorizeSecurityAction($request->user());
 
+        if ($user->trashed()) {
+            return response()->json([
+                'message' => 'Cannot reset the password of a deleted account.',
+            ], 422);
+        }
+
         if (! $user->birthdate) {
             return response()->json([
                 'message' => 'Cannot reset password because this user has no birthdate on file.',
@@ -61,31 +68,57 @@ class UserSecurityController extends Controller
 
         $temporaryPassword = Carbon::parse($user->birthdate)->format('mdY');
 
-        $user->forceFill([
-            'password' => Hash::make($temporaryPassword),
-            'must_change_password' => true,
-        ])->save();
+        DB::transaction(function () use ($request, $user, $audit, $temporaryPassword) {
+            $user->tokens()->delete();
 
-        $audit->accountHistory(
-            $user,
-            $request->user(),
-            'password.reset',
-            'Password was reset to the birthdate-based temporary credential.',
-            [],
-            $request,
-        );
+            $user->forceFill([
+                'password' => Hash::make($temporaryPassword),
+                'must_change_password' => true,
+            ])->save();
+
+            $audit->accountHistory(
+                $user,
+                $request->user(),
+                'password.reset',
+                'Password was reset to the birthdate-based temporary credential.',
+                [],
+                $request,
+            );
+
+            $audit->activity(
+                $request->user(),
+                'password.reset',
+                'Security',
+                "Reset password for {$user->first_name} {$user->last_name}.",
+                $request,
+            );
+        });
 
         return response()->json([
             'message' => 'Password reset successfully.',
             'temporary_password' => $temporaryPassword,
+            'must_change_password' => true,
         ]);
     }
 
     public function revokeSession(Request $request, User $user, int $tokenId, AuditService $audit): JsonResponse
     {
-        $this->authorizeSecurityAction($request->user());
+        $this->authorizeSecurityAction($request->user(), $user);
 
-        $token = $user->tokens()->whereKey($tokenId)->firstOrFail();
+        if ($user->trashed()) {
+            return response()->json([
+                'message' => 'Cannot revoke sessions for a deleted account.',
+            ], 422);
+        }
+
+        $token = $user->tokens()->whereKey($tokenId)->first();
+
+        if (! $token) {
+            return response()->json([
+                'message' => 'Session token not found for this user.',
+            ], 404);
+        }
+
         $token->delete();
 
         $audit->accountHistory(
@@ -93,7 +126,15 @@ class UserSecurityController extends Controller
             $request->user(),
             'session.revoked',
             'One active access token was revoked.',
-            [],
+            ['token_id' => $tokenId],
+            $request,
+        );
+
+        $audit->activity(
+            $request->user(),
+            'session.revoked',
+            'Security',
+            "Revoked an active session for {$user->first_name} {$user->last_name}.",
             $request,
         );
 
@@ -102,7 +143,13 @@ class UserSecurityController extends Controller
 
     public function revokeOtherSessions(Request $request, User $user, AuditService $audit): JsonResponse
     {
-        $this->authorizeSecurityAction($request->user());
+        $this->authorizeSecurityAction($request->user(), $user);
+
+        if ($user->trashed()) {
+            return response()->json([
+                'message' => 'Cannot revoke sessions for a deleted account.',
+            ], 422);
+        }
 
         $currentTokenId = $request->user()->currentAccessToken()?->id;
         $query = $user->tokens();
@@ -116,9 +163,17 @@ class UserSecurityController extends Controller
         $audit->accountHistory(
             $user,
             $request->user(),
-            'sessions.revoked_all',
-            'Other active access tokens were revoked.',
-            [],
+            'sessions.revoked',
+            'Active access tokens were revoked.',
+            ['revoked_count' => $deleted],
+            $request,
+        );
+
+        $audit->activity(
+            $request->user(),
+            'sessions.revoked',
+            'Security',
+            "Revoked {$deleted} active session(s) for {$user->first_name} {$user->last_name}.",
             $request,
         );
 
@@ -145,10 +200,16 @@ class UserSecurityController extends Controller
         abort(403, 'You are not authorized to view this user security data.');
     }
 
-    private function authorizeSecurityAction(User $authUser): void
+    private function authorizeSecurityAction(User $authUser, ?User $targetUser = null): void
     {
-        if (! $authUser->hasRole('super_admin')) {
-            abort(403, 'Only administrators can manage user security.');
+        if ($authUser->hasRole('super_admin')) {
+            return;
         }
+
+        if ($targetUser && $authUser->id === $targetUser->id) {
+            return;
+        }
+
+        abort(403, 'Only administrators or the account owner can manage security actions.');
     }
 }

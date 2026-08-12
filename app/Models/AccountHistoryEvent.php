@@ -29,11 +29,11 @@ class AccountHistoryEvent extends Model
 
     public function subjectUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'subject_user_id');
+        return $this->belongsTo(User::class, 'subject_user_id')->withTrashed();
     }
 
     public function actorUser(): BelongsTo
     {
-        return $this->belongsTo(User::class, 'actor_user_id');
+        return $this->belongsTo(User::class, 'actor_user_id')->withTrashed();
     }
 }
