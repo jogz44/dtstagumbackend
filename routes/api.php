@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\UserAuditController;
@@ -76,6 +77,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('password.changed')->group(function () {
+        Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
         Route::get('/organizations', [OrganizationController::class, 'index']);

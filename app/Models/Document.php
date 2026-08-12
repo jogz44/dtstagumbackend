@@ -11,11 +11,24 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string $id
  * @property string $tracking_number
  * @property string|null $created_by
- * @property string|null $description
+ * @property string|null $origin_sender
+ * @property string|null $sender_name
  * @property string|null $document_type
  * @property string|null $priority_level
- * @property string|null $status
+ * @property string|null $description
+ * @property string|null $remarks
  * @property bool $is_confidential
+ * @property bool $self_assign
+ * @property bool $send_to_all
+ * @property bool $is_internal
+ * @property string|null $office_assignment
+ * @property string|null $division_assignment
+ * @property string|null $assigned_user
+ * @property bool $is_read_only
+ * @property string|null $status
+ * @property string|null $notes
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
  */
 class Document extends Model
 {

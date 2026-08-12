@@ -20,7 +20,10 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $to_division_id
  * @property string|null $from_user_id
  * @property string|null $to_user_id
+ * @property string|null $status_before
+ * @property string|null $status_after
  * @property string|null $remarks
+ * @property \Illuminate\Support\Carbon|string|null $created_at
  */
 class DocumentHistory extends Model
 {

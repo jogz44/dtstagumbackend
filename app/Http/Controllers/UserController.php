@@ -18,14 +18,35 @@ class UserController extends Controller
 {
     public function index(Request $request)
     {
+        $allowed = [25, 50, 100];
+        $perPage = in_array($request->integer('per_page'), $allowed, true)
+            ? $request->integer('per_page')
+            : 25;
+
         $users = User::query()
-            ->with(['office', 'division', 'roles'])
+            ->with([
+                'office:id,name,short_name',
+                'division:id,name,short_name,office_id',
+                'roles:id,name,display_name,description',
+            ])
+            ->when($request->filled('search'), function ($query) use ($request) {
+                $search = trim((string) $request->input('search'));
+                $query->where(function ($q) use ($search) {
+                    $q->where('first_name', 'LIKE', "%{$search}%")
+                        ->orWhere('last_name', 'LIKE', "%{$search}%")
+                        ->orWhere(DB::raw("CONCAT(first_name, ' ', last_name)"), 'LIKE', "%{$search}%")
+                        ->orWhere('employee_id', 'LIKE', "%{$search}%")
+                        ->orWhere('username', 'LIKE', "%{$search}%")
+                        ->orWhere('email', 'LIKE', "%{$search}%")
+                        ->orWhere('position', 'LIKE', "%{$search}%");
+                });
+            })
             ->when($request->filled('office_id'), fn ($query) => $query->where('office_id', (string) $request->input('office_id')))
             ->when($request->filled('division_id'), fn ($query) => $query->where('division_id', (string) $request->input('division_id')))
             ->when($request->filled('role'), fn ($query) => $query->role((string) $request->input('role')))
             ->when($request->filled('is_active'), fn ($query) => $query->where('is_active', filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)))
             ->latest()
-            ->paginate($request->integer('per_page', 15));
+            ->paginate($perPage);
 
         return UserResource::collection($users);
     }
