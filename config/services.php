@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'pmis' => [
+        'sync_enabled' => (bool) env('PMIS_SYNC_ENABLED', false),
+        'sync_time' => env('PMIS_SYNC_TIME', '06:00'),
+    ],
+
 ];

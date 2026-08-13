@@ -163,8 +163,6 @@ class UserController extends Controller
         DB::transaction(function () use ($request, $authUser, $user, $audit) {
             $user->tokens()->delete();
 
-            $user->forceFill(['is_active' => false])->save();
-
             $audit->accountHistory(
                 $user,
                 $authUser,
@@ -182,7 +180,22 @@ class UserController extends Controller
                 $request,
             );
 
-            $user->delete();
+            $hasHistory = DB::table('documents')->where('created_by', $user->id)->exists()
+                || DB::table('document_histories')->where('performed_by', $user->id)->orWhere('from_user_id', $user->id)->orWhere('to_user_id', $user->id)->exists()
+                || DB::table('document_messages')->where('user_id', $user->id)->exists()
+                || DB::table('document_acknowledgements')->where('user_id', $user->id)->exists();
+
+            if ($hasHistory) {
+                // Fallback to soft delete + deactivate if database has tracking history
+                $user->forceFill(['is_active' => false])->save();
+                $user->delete();
+            } else {
+                // Delete overrides and detach roles to prevent Spatie relation constraints
+                $user->permissionOverrides()->delete();
+                $user->roles()->detach();
+
+                $user->forceDelete(); // Attempt permanent hard delete
+            }
         });
 
         return response()->json(['message' => 'User account deleted successfully.']);
@@ -193,29 +206,34 @@ class UserController extends Controller
         return Carbon::parse($birthdate)->format('mdY');
     }
 
-   private function syncAuthorizationState(User $user, Request $request): void
-{
-    $role = $request->filled('role')
-        ? (string) $request->input('role')
-        : $this->defaultRoleName();
+    private function syncAuthorizationState(User $user, Request $request): void
+    {
+        // Protected admin/super_admin roles cannot be modified via user updates
+        if ($user->exists && ($user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN))) {
+            return;
+        }
 
-    if ($role !== null) {
-        $user->syncRoles([$role]);
-    }
-}
+        $role = $request->filled('role')
+            ? (string) $request->input('role')
+            : $this->defaultRoleName();
 
-private function defaultRoleName(): ?string
-{
-    if (DB::table('roles')->where('name', RoleNames::RECEIVER)->exists()) {
-        return RoleNames::RECEIVER;
-    }
-
-    if (DB::table('roles')->where('name', RoleNames::SUPERVISOR)->exists()) {
-        return RoleNames::SUPERVISOR;
+        if ($role !== null) {
+            $user->syncRoles([$role]);
+        }
     }
 
-    return null;
-}
+    private function defaultRoleName(): ?string
+    {
+        if (DB::table('roles')->where('name', RoleNames::RECEIVER)->exists()) {
+            return RoleNames::RECEIVER;
+        }
+
+        if (DB::table('roles')->where('name', RoleNames::SUPERVISOR)->exists()) {
+            return RoleNames::SUPERVISOR;
+        }
+
+        return null;
+    }
 
     private function accountUpdateEventType(array $changes): string
     {
