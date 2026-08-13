@@ -47,6 +47,16 @@ class UserDeleteApiTest extends TestCase
             ]);
         }
 
+        if (! DB::table('permissions')->where('name', 'users.manage')->exists()) {
+            DB::table('permissions')->insert([
+                'id' => (string) Str::uuid(),
+                'name' => 'users.manage',
+                'guard_name' => 'web',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
         $this->office = Office::create(['name' => 'HR Office', 'code' => 'HRO']);
 
         $this->superAdmin = User::create([

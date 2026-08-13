@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
+use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
@@ -77,6 +78,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('password.changed')->group(function () {
+        Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
