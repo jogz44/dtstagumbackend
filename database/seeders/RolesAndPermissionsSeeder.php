@@ -11,7 +11,7 @@ class RolesAndPermissionsSeeder extends Seeder
     public function run(): void
     {
         $roles = [
-            ['name' => 'super_admin', 'guard_name' => 'web', 'display_name' => 'Administrator', 'description' => 'Full system access', 'is_system' => true],
+            ['name' => 'admin', 'guard_name' => 'web', 'display_name' => 'Administrator', 'description' => 'Full system access', 'is_system' => true],
             ['name' => 'supervisor', 'guard_name' => 'web', 'display_name' => 'Supervisor', 'description' => 'Can transfer documents', 'is_system' => true],
             ['name' => 'receiver', 'guard_name' => 'web', 'display_name' => 'Receiver', 'description' => 'Can receive documents', 'is_system' => true],
         ];
@@ -33,7 +33,7 @@ class RolesAndPermissionsSeeder extends Seeder
             return [$permission['name'] => Permission::updateOrCreate(['name' => $permission['name'], 'guard_name' => $permission['guard_name']], $permission)];
         });
 
-        $roleModels['super_admin']->syncPermissions(array_column($permissions, 'name'));
+        $roleModels['admin']->syncPermissions(array_column($permissions, 'name'));
         $roleModels['supervisor']->syncPermissions(array_column($permissions, 'name'));
         $roleModels['receiver']->syncPermissions(['can_receive_documents', 'can_register_documents']);
     }

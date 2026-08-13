@@ -99,7 +99,7 @@ class UserController extends Controller
             $before = $audit->userSnapshot($user->loadMissing('roles'));
             $validated = $request->validated();
 
-            if ($user->hasRole('super_admin')) {
+            if ($user->hasRole('admin')) {
                 unset($validated['role'], $validated['is_active']);
             }
 
