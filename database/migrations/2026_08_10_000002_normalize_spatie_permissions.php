@@ -10,17 +10,12 @@ return new class extends Migration
     {
         $now = now();
         $permissions = [
-            ['name' => 'documents.receive', 'group_name' => 'Documents', 'description' => 'Receive incoming documents'],
-            ['name' => 'documents.register', 'group_name' => 'Documents', 'description' => 'Register new documents'],
-            ['name' => 'documents.edit', 'group_name' => 'Documents', 'description' => 'Edit document metadata and content'],
-            ['name' => 'documents.transfer', 'group_name' => 'Documents', 'description' => 'Transfer documents to another office or division'],
-            ['name' => 'documents.view_confidential', 'group_name' => 'Documents', 'description' => 'View confidential documents'],
-            ['name' => 'users.manage', 'group_name' => 'Administration', 'description' => 'Manage user accounts'],
-            ['name' => 'roles.manage', 'group_name' => 'Administration', 'description' => 'Manage roles and permissions'],
-            ['name' => 'settings.manage', 'group_name' => 'Administration', 'description' => 'Manage system settings'],
-            ['name' => 'reports.view', 'group_name' => 'Reports & Monitoring', 'description' => 'View reports'],
-            ['name' => 'activity_logs.view', 'group_name' => 'Reports & Monitoring', 'description' => 'View activity logs'],
-            ['name' => 'performance_ranking.view', 'group_name' => 'Reports & Monitoring', 'description' => 'View performance ranking'],
+            ['name' => 'can_view_confidential', 'group_name' => 'Documents', 'description' => 'View, share, edit confidential documents within office'],
+            ['name' => 'can_edit_document', 'group_name' => 'Documents', 'description' => 'Edit a document'],
+            ['name' => 'can_share_document', 'group_name' => 'Documents', 'description' => 'Share a document'],
+            ['name' => 'can_transfer_documents', 'group_name' => 'Documents', 'description' => 'Transfer a document'],
+            ['name' => 'can_receive_documents', 'group_name' => 'Documents', 'description' => 'Only receive this type of document'],
+            ['name' => 'can_register_documents', 'group_name' => 'Documents', 'description' => 'Register a document'],
         ];
 
         foreach ($permissions as $permission) {
@@ -37,20 +32,29 @@ return new class extends Migration
         }
 
         $rolePermissions = [
-            'super_admin' => collect($permissions)->pluck('name')->all(),
+            'super_admin' => [
+                'can_view_confidential' => true,
+                'can_edit_document' => true,
+                'can_share_document' => true,
+                'can_transfer_documents' => true,
+                'can_receive_documents' => true,
+                'can_register_documents' => true,
+            ],
             'supervisor' => [
-                'documents.receive',
-                'documents.register',
-                'documents.transfer',
-                'documents.view_confidential',
-                'reports.view',
-                'activity_logs.view',
-                'performance_ranking.view',
+                'can_view_confidential' => true,
+                'can_edit_document' => true,
+                'can_share_document' => true,
+                'can_transfer_documents' => true,
+                'can_receive_documents' => true,
+                'can_register_documents' => true,
             ],
             'receiver' => [
-                'documents.receive',
-                'documents.register',
-                'documents.transfer',
+                'can_view_confidential' => false,
+                'can_edit_document' => false,
+                'can_share_document' => false,
+                'can_transfer_documents' => false,
+                'can_receive_documents' => true,
+                'can_register_documents' => true,
             ],
         ];
 
@@ -60,7 +64,7 @@ return new class extends Migration
                 continue;
             }
 
-            foreach ($permissionNames as $permissionName) {
+            foreach (array_keys(array_filter($permissionNames)) as $permissionName) {
                 $permissionId = DB::table('permissions')->where('name', $permissionName)->where('guard_name', 'web')->value('id');
                 if (! $permissionId) {
                     continue;
