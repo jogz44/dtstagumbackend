@@ -55,6 +55,10 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    protected $attributes = [
+        'must_change_password' => false,
+    ];
+
     protected $casts = [
         'birthdate' => 'date',
         'is_active' => 'boolean',

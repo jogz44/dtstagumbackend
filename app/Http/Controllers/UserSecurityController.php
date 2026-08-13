@@ -61,13 +61,15 @@ class UserSecurityController extends Controller
             ], 422);
         }
 
-        if (! $user->birthdate) {
+        $birthDate = $user->pmisEmployee?->birth_date ?? ($user->birthdate ? Carbon::parse($user->birthdate) : null);
+
+        if (! $birthDate) {
             return response()->json([
                 'message' => 'Cannot reset password because this user has no birthdate on file.',
             ], 422);
         }
 
-        $temporaryPassword = Carbon::parse($user->birthdate)->format('mdY');
+        $temporaryPassword = $birthDate->format('mdY');
 
         DB::transaction(function () use ($request, $user, $audit, $temporaryPassword) {
             $user->tokens()->delete();

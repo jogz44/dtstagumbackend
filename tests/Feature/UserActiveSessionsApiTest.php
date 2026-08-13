@@ -23,10 +23,10 @@ class UserActiveSessionsApiTest extends TestCase
     {
         parent::setUp();
 
-        if (! DB::table('roles')->where('name', 'super_admin')->exists()) {
+        if (! DB::table('roles')->where('name', 'admin')->exists()) {
             DB::table('roles')->insert([
                 'id' => (string) Str::uuid(),
-                'name' => 'super_admin',
+                'name' => 'admin',
                 'guard_name' => 'web',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -54,7 +54,7 @@ class UserActiveSessionsApiTest extends TestCase
             'birthdate' => '1990-01-01',
             'is_active' => true,
         ]);
-        $this->superAdmin->assignRole('super_admin');
+        $this->superAdmin->assignRole('admin');
 
         $this->targetUser = User::create([
             'username' => 'targetuser',

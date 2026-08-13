@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
 use App\Http\Resources\UserResource;
+use App\Models\PmisEmployee;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\UserInitialPasswordService;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,7 +57,38 @@ class UserController extends Controller
     {
         $user = DB::transaction(function () use ($request, $audit) {
             $validated = $request->validated();
-            $temporaryPassword = $this->temporaryPasswordFromBirthdate($validated['birthdate']);
+            $temporaryPassword = null;
+
+            if (isset($validated['pmis_employee_id']) && filled($validated['pmis_employee_id'])) {
+                $employee = PmisEmployee::findOrFail($validated['pmis_employee_id']);
+
+                if ($employee->user()->exists()) {
+                    abort(response()->json([
+                        'message' => 'This PMIS employee already has a linked portal account.',
+                        'errors' => ['pmis_employee_id' => ['This PMIS employee already has a linked portal account.']],
+                    ], 422));
+                }
+
+                if ($employee->birth_date === null) {
+                    abort(response()->json([
+                        'message' => 'This employee does not have a verified birth date in PMIS and cannot be issued the standard temporary password.',
+                        'errors' => ['pmis_employee_id' => ['This employee does not have a verified birth date in PMIS.']],
+                    ], 422));
+                }
+
+                $initialPasswordService = app(UserInitialPasswordService::class);
+                $temporaryPassword = $initialPasswordService->fromEmployee($employee);
+
+                $validated['first_name'] = $employee->first_name ?: ($validated['first_name'] ?? '');
+                $validated['last_name'] = $employee->last_name ?: ($validated['last_name'] ?? '');
+                $validated['birthdate'] = $employee->birth_date->format('Y-m-d');
+                if (filled($employee->designation)) {
+                    $validated['position'] = $employee->designation;
+                }
+            } else {
+                $temporaryPassword = $this->temporaryPasswordFromBirthdate($validated['birthdate'] ?? null);
+            }
+
             $validated['password'] = Hash::make($temporaryPassword);
             $validated['must_change_password'] = true;
 
@@ -87,8 +120,7 @@ class UserController extends Controller
             return $user;
         });
 
-        $resource = (new UserResource($user->load(['office', 'division', 'roles'])))->resolve();
-        $resource['temporary_password'] = $this->temporaryPasswordFromBirthdate($user->birthdate);
+        $resource = (new UserResource($user->load(['office', 'division', 'roles', 'pmisEmployee'])))->resolve();
 
         return response()->json($resource, 201);
     }
@@ -99,7 +131,7 @@ class UserController extends Controller
             $before = $audit->userSnapshot($user->loadMissing('roles'));
             $validated = $request->validated();
 
-            if ($user->hasRole('admin')) {
+            if ($user->hasRole('admin') || $user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN)) {
                 unset($validated['role'], $validated['is_active']);
             }
 

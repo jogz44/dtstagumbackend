@@ -52,6 +52,15 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json($request->user());
     });
 
+    Route::post('/logout', function (Request $request) {
+        $token = $request->user()->currentAccessToken();
+        if ($token && method_exists($token, 'delete')) {
+            $token->delete();
+        }
+
+        return response()->json(['message' => 'Logged out successfully.']);
+    });
+
     Route::post('/change-password', function (Request $request) {
         $request->validate([
             'current_password' => 'required|string',
@@ -62,6 +71,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
         if (! Hash::check($request->current_password, $user->password)) {
             return response()->json(['message' => 'Current password is incorrect.'], 422);
+        }
+
+        if ($user->pmisEmployee && app(\App\Services\UserInitialPasswordService::class)->matchesEmployeeBirthday($user->pmisEmployee, $request->new_password)) {
+            return response()->json([
+                'message' => 'Choose a password different from your temporary birthday password.',
+                'errors' => [
+                    'new_password' => ['Choose a password different from your temporary birthday password.'],
+                ],
+            ], 422);
         }
 
         $user->update([

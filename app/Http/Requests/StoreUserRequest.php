@@ -32,12 +32,13 @@ class StoreUserRequest extends FormRequest
 
         return [
             'username' => ['required', 'string', 'max:255', Rule::unique('users', 'username')->whereNull('deleted_at')],
-            'first_name' => ['required', 'string', 'max:255'],
-            'last_name' => ['required', 'string', 'max:255'],
+            'first_name' => ['required_without:pmis_employee_id', 'nullable', 'string', 'max:255'],
+            'last_name' => ['required_without:pmis_employee_id', 'nullable', 'string', 'max:255'],
             'office_id' => ['required', 'uuid', Rule::exists('offices', 'id')],
-            'division_id' => ['required', 'uuid', $divisionRule],
+            'division_id' => ['nullable', 'uuid', $divisionRule],
             'employee_id' => ['nullable', 'string', 'max:255'],
-            'birthdate' => ['required', 'date_format:Y-m-d', 'before_or_equal:today'],
+            'pmis_employee_id' => ['nullable', 'uuid', Rule::exists('pmis_employees', 'id'), Rule::unique('users', 'pmis_employee_id')->whereNull('deleted_at')],
+            'birthdate' => ['required_without:pmis_employee_id', 'nullable', 'date_format:Y-m-d', 'before_or_equal:today'],
             'position' => ['nullable', 'string', 'max:255'],
             'employment_status' => ['nullable', 'string', Rule::in(['Permanent', 'Regular', 'Casual', 'Contractual', 'Job Order', 'Co-Terminus', 'Honorarium', 'regular', 'casual', 'contractual', 'honorarium', 'co-terminous', 'co-terminus', 'job order'])],
             'avatar_url' => ['nullable', 'url'],
