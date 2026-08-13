@@ -91,11 +91,13 @@ class DocumentController extends Controller
                 'status' => 'outgoing',
             ]);
 
+            $disk = config('filesystems.document_disk', 'shared_documents');
+
             foreach ($request->file('attachments', []) as $file) {
-                $path = $file->store("documents/{$document->id}", 'local');
+                $path = $file->store("documents/{$document->id}", $disk);
 
                 $document->attachments()->create([
-                    'disk' => 'local',
+                    'disk' => $disk,
                     'path' => $path,
                     'original_name' => $file->getClientOriginalName(),
                     'mime_type' => $file->getMimeType() ?? 'application/octet-stream',

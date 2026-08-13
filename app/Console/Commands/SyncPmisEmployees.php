@@ -3,9 +3,11 @@
 namespace App\Console\Commands;
 
 use App\Models\PmisEmployee;
+use App\Services\AuditService;
 use App\Services\PmisEmployeeService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
@@ -66,6 +68,21 @@ class SyncPmisEmployees extends Command
         try {
             $pmisRows = $pmisEmployees->getActiveEmployees();
             $localTableExists = Schema::connection('mysql')->hasTable('pmis_employees');
+
+            if ($pmisRows->isEmpty()) {
+                $this->error('PMIS returned 0 records. Synchronization aborted safely to prevent dataset wipe.');
+                Log::warning('PMIS sync aborted: PMIS query returned 0 records.');
+
+                return self::FAILURE;
+            }
+
+            $existingCount = $localTableExists ? PmisEmployee::query()->count() : 0;
+            if ($existingCount > 100 && $pmisRows->count() < ($existingCount * 0.8)) {
+                $this->error("PMIS returned {$pmisRows->count()} records, which is a significant drop (>20%) from existing {$existingCount} local records. Synchronization aborted safely.");
+                Log::warning("PMIS sync aborted: dataset drop from {$existingCount} to {$pmisRows->count()}.");
+
+                return self::FAILURE;
+            }
 
             if ($commit) {
                 if (! $localTableExists) {
@@ -209,6 +226,26 @@ class SyncPmisEmployees extends Command
                 $this->line('Duplicate PMISNo values: ' . $duplicatePmisNos->keys()->take(10)->implode(', '));
             }
 
+            if ($commit) {
+                Log::info("PMIS employee sync completed. Read={$summary['read']}, Created={$summary['created']}, Updated={$summary['updated']}, Unchanged={$summary['unchanged']}, Failures={$summary['failures']}.");
+
+                app(AuditService::class)->activity(
+                    null,
+                    'pmis.sync',
+                    'PMIS',
+                    "PMIS employee sync completed: {$summary['read']} read, {$summary['created']} created, {$summary['updated']} updated, {$summary['unchanged']} unchanged, {$summary['failures']} failures.",
+                    null,
+                    [
+                        'outcome' => 'success',
+                        'read' => $summary['read'],
+                        'created' => $summary['created'],
+                        'updated' => $summary['updated'],
+                        'unchanged' => $summary['unchanged'],
+                        'failures' => $summary['failures'],
+                    ]
+                );
+            }
+
             $this->newLine();
             $this->comment($commit
                 ? 'Commit sync complete. No PMIS data was modified. Users were not modified.'
@@ -216,6 +253,20 @@ class SyncPmisEmployees extends Command
 
             return self::SUCCESS;
         } catch (Throwable $e) {
+            Log::error('PMIS employee sync failed: ' . $e->getMessage(), ['exception' => $e]);
+
+            app(AuditService::class)->activity(
+                null,
+                'pmis.sync',
+                'PMIS',
+                'PMIS employee sync failed: ' . $e->getMessage(),
+                null,
+                [
+                    'outcome' => 'failure',
+                    'error' => $e->getMessage(),
+                ]
+            );
+
             $this->error('Failed to sync PMIS employees.');
             $this->error('Error details: ' . $e->getMessage());
 
