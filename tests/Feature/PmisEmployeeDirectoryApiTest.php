@@ -22,10 +22,10 @@ class PmisEmployeeDirectoryApiTest extends TestCase
     {
         parent::setUp();
 
-        if (! \Illuminate\Support\Facades\DB::table('roles')->where('name', 'super_admin')->exists()) {
+        if (! \Illuminate\Support\Facades\DB::table('roles')->where('name', 'admin')->exists()) {
             \Illuminate\Support\Facades\DB::table('roles')->insert([
                 'id' => (string) Str::uuid(),
-                'name' => 'super_admin',
+                'name' => 'admin',
                 'guard_name' => 'web',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -52,7 +52,7 @@ class PmisEmployeeDirectoryApiTest extends TestCase
             'office_id' => $this->office->id,
             'is_active' => true,
         ]);
-        $this->adminUser->assignRole('super_admin');
+        $this->adminUser->assignRole('admin');
 
         $this->regularUser = User::create([
             'username' => 'regular_user',
