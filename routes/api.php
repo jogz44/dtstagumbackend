@@ -99,8 +99,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [\App\Http\Controllers\ReportController::class, 'index']);
+        Route::get('/documents', [DocumentController::class, 'index']);
         Route::post('/documents', [DocumentController::class, 'store']);
+        Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
+        Route::put('/documents/{document}', [DocumentController::class, 'update']);
+        Route::post('/documents/{document}/transfer', [DocumentController::class, 'transfer']);
+        Route::post('/documents/{document}/release', [DocumentController::class, 'release']);
+        Route::post('/documents/{document}/archive', [DocumentController::class, 'archive']);
+        Route::post('/documents/{document}/share', [DocumentController::class, 'share']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);

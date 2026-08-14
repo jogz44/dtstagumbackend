@@ -12,23 +12,48 @@ use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class DocumentController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $documents = Document::query()
-            ->latest()
-            ->get()
-            ->map(function ($doc) {
-                $assigned = $doc->assigned_user;
-                if (!empty($assigned) && Str::isUuid($assigned)) {
-                    $user = \App\Models\User::find($assigned);
-                    $doc->assigned_user = $user ? $user->full_name : $assigned;
-                }
-                return $doc;
-            });
+        $tab = $request->query('tab', 'my');
+        $query = Document::query()->with(['creator', 'attachments']);
+
+        $user = $request->user();
+
+        if ($tab === 'my') {
+            $query->forMyDocuments($user);
+        } elseif ($tab === 'registry') {
+            $query->forRegistry($user);
+        } elseif ($tab === 'incoming') {
+            $query->forIncoming($user);
+        } elseif ($tab === 'outgoing') {
+            $query->forOutgoing($user);
+        } elseif ($tab === 'archived') {
+            $query->where('status', 'archived')
+                  ->where(function ($q) use ($user) {
+                      $q->where('created_by', $user->id)
+                        ->orWhere('office_assignment', $user->office?->name)
+                        ->orWhereHas('creator', function ($q2) use ($user) {
+                            $q2->where('office_id', $user->office_id);
+                        });
+                  });
+        } elseif ($tab === 'overdue') {
+            $query->forIncoming($user)
+                  ->where('created_at', '<', now()->subHours(24));
+        }
+
+        $documents = $query->latest()->get()->map(function ($doc) {
+            $assigned = $doc->assigned_user;
+            if (!empty($assigned) && Str::isUuid($assigned)) {
+                $user = \App\Models\User::find($assigned);
+                $doc->assigned_user = $user ? $user->full_name : $assigned;
+            }
+            return $doc;
+        });
 
         return response()->json([
             'data' => $documents
@@ -83,12 +108,24 @@ class DocumentController extends Controller
         $validated = $request->safe()->except('attachments');
 
         $document = DB::transaction(function () use ($request, $validated) {
+            $user = $request->user();
+
+            if ($validated['is_internal'] ?? false) {
+                $validated['origin_sender'] = $user->office?->name ?? $user->full_name;
+            }
+
+            if ($validated['self_assign'] ?? false) {
+                $validated['office_assignment'] = $user->office?->name;
+                $validated['division_assignment'] = $user->division?->name;
+                $validated['assigned_user'] = $user->full_name;
+            }
+
             $document = Document::create([
                 ...$validated,
                 'tracking_number' => 'DOC-'.Str::upper(Str::random(12)),
-                'created_by' => $request->user()->id,
-                // Receive/uploaded documents are immediately visible to their creator as outgoing.
-                'status' => 'outgoing',
+                'created_by' => $user->id,
+                // Automatically set status to registered if self-assigned, else outgoing
+                'status' => ($validated['self_assign'] ?? false) ? 'registered' : 'outgoing',
             ]);
 
             $disk = config('filesystems.document_disk', 'shared_documents');
@@ -290,5 +327,148 @@ class DocumentController extends Controller
             ->trim()
             ->lower()
             ->toString();
+    }
+    public function update(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'document_type' => 'nullable|string',
+            'priority_level' => 'nullable|string',
+            'description' => 'nullable|string|max:30',
+            'is_confidential' => 'nullable|boolean',
+            'remarks' => 'nullable|string',
+        ]);
+
+        $document->update($validated);
+
+        DocumentHistory::record($document, 'edited', $request->user(), [
+            'remarks' => 'Document details were updated.',
+        ]);
+
+        return response()->json([
+            'message' => 'Document updated successfully.',
+            'document' => $document->fresh(),
+        ]);
+    }
+
+    public function transfer(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'office_assignment' => 'nullable|string',
+            'division_assignment' => 'nullable|string',
+            'assigned_user' => 'nullable|string',
+            'remarks' => 'nullable|string',
+        ]);
+
+        $statusBefore = $document->status;
+        $fromOffice = $document->office_assignment ?? $document->origin_sender;
+
+        $document->update([
+            'office_assignment' => $validated['office_assignment'] ?? $document->office_assignment,
+            'division_assignment' => $validated['division_assignment'] ?? null,
+            'assigned_user' => $validated['assigned_user'] ?? null,
+            'status' => 'outgoing', // Set to outgoing for the sender
+        ]);
+
+        DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
+            'remarks' => $validated['remarks'] ?? 'Document transferred.',
+            'from_office' => $fromOffice,
+            'to_office' => $document->office_assignment,
+            'status_before' => $statusBefore,
+            'status_after' => 'outgoing',
+            'metadata' => [
+                'assigned_name' => $document->assigned_user,
+            ],
+        ]);
+
+        return response()->json([
+            'message' => 'Document transferred successfully.',
+            'document' => $document->fresh(),
+        ]);
+    }
+
+    public function release(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'to_office' => 'nullable|string',
+            'to_user' => 'nullable|string',
+            'remarks' => 'nullable|string',
+        ]);
+
+        $statusBefore = $document->status;
+
+        $document->update([
+            'status' => 'released',
+        ]);
+
+        DocumentHistory::record($document, 'released', $request->user(), [
+            'remarks' => $validated['remarks'] ?? 'Document physically released.',
+            'to_office' => $validated['to_office'] ?? null,
+            'status_before' => $statusBefore,
+            'status_after' => 'released',
+            'metadata' => [
+                'released_to' => $validated['to_user'] ?? null,
+            ],
+        ]);
+
+        return response()->json([
+            'message' => 'Document released successfully.',
+            'document' => $document->fresh(),
+        ]);
+    }
+
+    public function archive(Request $request, Document $document): JsonResponse
+    {
+        $statusBefore = $document->status;
+
+        $document->update([
+            'status' => 'archived',
+        ]);
+
+        DocumentHistory::record($document, 'archived', $request->user(), [
+            'remarks' => 'Document archived.',
+            'status_before' => $statusBefore,
+            'status_after' => 'archived',
+        ]);
+
+        return response()->json([
+            'message' => 'Document archived successfully.',
+            'document' => $document->fresh(),
+        ]);
+    }
+
+    public function share(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'office' => 'required|string',
+            'division' => 'nullable|string',
+            'user' => 'nullable|string',
+            'note' => 'nullable|string',
+        ]);
+
+        DocumentHistory::record($document, 'shared', $request->user(), [
+            'remarks' => $validated['note'] ?? 'Document shared.',
+            'to_office' => $validated['office'],
+            'metadata' => [
+                'to_division' => $validated['division'] ?? null,
+                'shared_with_user' => $validated['user'] ?? null,
+            ],
+        ]);
+
+        return response()->json([
+            'message' => 'Document shared successfully.',
+        ]);
+    }
+
+    public function showAttachment(Request $request, \App\Models\DocumentAttachment $attachment)
+    {
+        $disk = $attachment->disk ?? 'shared_documents';
+        if (!Storage::disk($disk)->exists($attachment->path)) {
+            abort(404, 'File not found');
+        }
+
+        return Storage::disk($disk)->response($attachment->path, $attachment->original_name, [
+            'Content-Type' => $attachment->mime_type,
+            'Content-Disposition' => 'inline; filename="' . $attachment->original_name . '"'
+        ]);
     }
 }
