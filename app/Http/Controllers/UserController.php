@@ -140,22 +140,34 @@ class UserController extends Controller
 
     public function update(UpdateUserRequest $request, User $user, AuditService $audit): JsonResponse
     {
-        $user = DB::transaction(function () use ($request, $user, $audit) {
+        $validated = $request->validated();
+
+        $updates = [];
+
+        if (array_key_exists('username', $validated)) {
+            $updates['username'] = $validated['username'];
+        }
+
+        if (array_key_exists('is_active', $validated)) {
+            if ($this->isProtectedAccount($user) && $validated['is_active'] === false) {
+                abort(response()->json([
+                    'message' => 'This account cannot be deactivated.',
+                ], 422));
+            }
+
+            if (! $this->isProtectedAccount($user)) {
+                $updates['is_active'] = $validated['is_active'];
+            }
+        }
+
+        if ($updates === []) {
+            return (new UserResource($user->load(['office', 'division', 'roles'])))->response();
+        }
+
+        $user = DB::transaction(function () use ($request, $user, $audit, $updates) {
             $before = $audit->userSnapshot($user->loadMissing('roles'));
-            $validated = $request->validated();
 
-            if ($user->hasRole('admin') || $user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN)) {
-                unset($validated['role'], $validated['is_active']);
-            }
-
-            if (array_key_exists('password', $validated) && filled($validated['password'] ?? null)) {
-                $validated['password'] = Hash::make($validated['password']);
-            } else {
-                unset($validated['password']);
-            }
-
-            $user->update($validated);
-            $this->syncAuthorizationState($user, $request);
+            $user->update($updates);
             $user->refresh();
 
             $changes = $audit->diffSnapshots($before, $audit->userSnapshot($user->loadMissing('roles')));
@@ -189,6 +201,11 @@ class UserController extends Controller
         });
 
         return (new UserResource($user->load(['office', 'division', 'roles'])))->response();
+    }
+
+    private function isProtectedAccount(User $user): bool
+    {
+        return $user->hasRole('admin') || $user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN);
     }
 
     public function destroy(Request $request, User $user, AuditService $audit): JsonResponse

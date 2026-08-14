@@ -73,19 +73,28 @@ class UserUpdateApiTest extends TestCase
         Sanctum::actingAs($this->superAdmin);
     }
 
+    public function test_user_update_allows_username_change(): void
+    {
+        $response = $this->putJson("/api/users/{$this->targetUser->id}", [
+            'username' => 'john.doe.updated',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertDatabaseHas('users', [
+            'id' => $this->targetUser->id,
+            'username' => 'john.doe.updated',
+        ]);
+    }
+
     public function test_user_update_accepts_boolean_is_active(): void
     {
         $response = $this->putJson("/api/users/{$this->targetUser->id}", [
-            'first_name' => 'John',
-            'last_name' => 'Doe',
-            'position' => 'Senior Staff',
             'is_active' => false,
         ]);
 
         $response->assertStatus(200);
         $this->assertDatabaseHas('users', [
             'id' => $this->targetUser->id,
-            'position' => 'Senior Staff',
             'is_active' => false,
         ]);
     }
@@ -123,30 +132,51 @@ class UserUpdateApiTest extends TestCase
             ->assertJsonValidationErrors(['is_active']);
     }
 
-    public function test_super_admin_protected_fields_cannot_be_changed(): void
+    public function test_super_admin_deactivation_is_blocked_with_422(): void
     {
         $response = $this->putJson("/api/users/{$this->superAdmin->id}", [
-            'first_name' => 'SuperUpdated',
-            'last_name' => 'AdminUpdated',
-            'position' => 'Lead Admin',
             'is_active' => false,
-            'role' => 'employee',
         ]);
 
-        $response->assertStatus(200);
+        $response->assertStatus(422)
+            ->assertJson(['message' => 'This account cannot be deactivated.']);
 
         $this->superAdmin->refresh();
-
-        $this->assertEquals('SuperUpdated', $this->superAdmin->first_name);
-        $this->assertEquals('Lead Admin', $this->superAdmin->position);
         $this->assertTrue($this->superAdmin->is_active);
-        $this->assertTrue($this->superAdmin->hasRole('super_admin'));
+    }
+
+    public function test_user_update_rejects_forbidden_fields(): void
+    {
+        $forbiddenPayloads = [
+            ['first_name' => 'FAKE'],
+            ['last_name' => 'FAKE'],
+            ['employee_id' => 'EMP-999'],
+            ['employeeId' => 'EMP-999'],
+            ['birthdate' => '2000-01-01'],
+            ['birth_date' => '2000-01-01'],
+            ['office_id' => $this->office->id],
+            ['officeId' => $this->office->id],
+            ['division_id' => (string) Str::uuid()],
+            ['divisionId' => (string) Str::uuid()],
+            ['position' => 'NEW POSITION'],
+            ['employment_status' => 'Casual'],
+            ['role' => 'employee'],
+            ['password' => 'newpassword123'],
+            ['pmis_employee_id' => (string) Str::uuid()],
+            ['email' => 'fake@example.com'],
+            ['avatar_url' => 'https://example.com/avatar.png'],
+        ];
+
+        foreach ($forbiddenPayloads as $payload) {
+            $response = $this->putJson("/api/users/{$this->targetUser->id}", $payload);
+            $response->assertStatus(422);
+        }
     }
 
     public function test_user_update_records_activity_log_and_account_history(): void
     {
         $response = $this->putJson("/api/users/{$this->targetUser->id}", [
-            'position' => 'Division Officer',
+            'username' => 'john.doe.logged',
             'is_active' => false,
         ]);
 

@@ -11,18 +11,6 @@ class UpdateUserRequest extends FormRequest
     {
         $input = [];
 
-        if ($this->has('employeeId') && ! $this->has('employee_id')) {
-            $input['employee_id'] = $this->input('employeeId');
-        }
-
-        if ($this->has('officeId') && ! $this->has('office_id')) {
-            $input['office_id'] = $this->input('officeId');
-        }
-
-        if ($this->has('divisionId') && ! $this->has('division_id')) {
-            $input['division_id'] = $this->input('divisionId');
-        }
-
         $rawActive = $this->has('is_active')
             ? $this->input('is_active')
             : ($this->has('status') ? $this->input('status') : null);
@@ -67,28 +55,35 @@ class UpdateUserRequest extends FormRequest
     {
         $routeUser = $this->route('user');
         $userId = is_object($routeUser) ? $routeUser->id : $routeUser;
-        $officeId = $this->input('office_id') ?? (is_object($routeUser) ? $routeUser->office_id : null);
-        $divisionRule = Rule::exists('divisions', 'id');
-
-        if ($officeId) {
-            $divisionRule->where('office_id', (string) $officeId);
-        }
 
         return [
             'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)->whereNull('deleted_at')],
-            'password' => ['sometimes', 'nullable', 'string', 'min:7'],
-            'first_name' => ['sometimes', 'string', 'max:255'],
-            'last_name' => ['sometimes', 'string', 'max:255'],
-            'office_id' => ['nullable', 'uuid', Rule::exists('offices', 'id')],
-            'division_id' => ['nullable', 'uuid', $divisionRule],
-            'employee_id' => ['nullable', 'string', 'max:255'],
-            'birthdate' => ['nullable', 'date'],
-            'position' => ['nullable', 'string', 'max:255'],
-            'employment_status' => ['nullable', 'string', Rule::in(['Permanent', 'Regular', 'Casual', 'Contractual', 'Job Order', 'Co-Terminus', 'Honorarium', 'regular', 'casual', 'contractual', 'honorarium', 'co-terminous', 'co-terminus', 'job order'])],
-            'avatar_url' => ['nullable', 'url'],
-            'email' => ['nullable', 'email', 'max:255'],
             'is_active' => ['sometimes', 'boolean'],
-            'role' => ['nullable', 'string', Rule::exists('roles', 'name')],
+
+            'first_name' => ['prohibited'],
+            'last_name' => ['prohibited'],
+            'fullName' => ['prohibited'],
+            'full_name' => ['prohibited'],
+            'employee_id' => ['prohibited'],
+            'employeeId' => ['prohibited'],
+            'birthdate' => ['prohibited'],
+            'birth_date' => ['prohibited'],
+            'office_id' => ['prohibited'],
+            'officeId' => ['prohibited'],
+            'division_id' => ['prohibited'],
+            'divisionId' => ['prohibited'],
+            'position' => ['prohibited'],
+            'employment_status' => ['prohibited'],
+            'employmentStatus' => ['prohibited'],
+            'role' => ['prohibited'],
+            'role_id' => ['prohibited'],
+            'roles' => ['prohibited'],
+            'password' => ['prohibited'],
+            'pmis_employee_id' => ['prohibited'],
+            'pmisEmployeeId' => ['prohibited'],
+            'email' => ['prohibited'],
+            'avatar_url' => ['prohibited'],
+            'avatarUrl' => ['prohibited'],
         ];
     }
 }
