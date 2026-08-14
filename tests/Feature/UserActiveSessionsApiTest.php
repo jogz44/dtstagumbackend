@@ -15,7 +15,7 @@ class UserActiveSessionsApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected User $superAdmin;
+    protected User $adminUser;
     protected User $targetUser;
     protected Office $office;
 
@@ -45,7 +45,7 @@ class UserActiveSessionsApiTest extends TestCase
 
         $this->office = Office::create(['name' => 'HR Office', 'code' => 'HRO']);
 
-        $this->superAdmin = User::create([
+        $this->adminUser = User::create([
             'username' => 'superadmin',
             'password' => bcrypt('password'),
             'first_name' => 'Super',
@@ -54,7 +54,7 @@ class UserActiveSessionsApiTest extends TestCase
             'birthdate' => '1990-01-01',
             'is_active' => true,
         ]);
-        $this->superAdmin->assignRole('admin');
+        $this->adminUser->assignRole('admin');
 
         $this->targetUser = User::create([
             'username' => 'targetuser',
@@ -116,7 +116,7 @@ class UserActiveSessionsApiTest extends TestCase
 
     public function test_single_session_revoke_works_and_audits(): void
     {
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
 
         $token1 = $this->targetUser->createToken('session-1');
         $token2 = $this->targetUser->createToken('session-2');
@@ -131,21 +131,21 @@ class UserActiveSessionsApiTest extends TestCase
 
         $this->assertDatabaseHas('account_history_events', [
             'subject_user_id' => $this->targetUser->id,
-            'actor_user_id' => $this->superAdmin->id,
+            'actor_user_id' => $this->adminUser->id,
             'event_type' => 'session.revoked',
         ]);
 
         $this->assertDatabaseHas('activity_events', [
-            'actor_user_id' => $this->superAdmin->id,
+            'actor_user_id' => $this->adminUser->id,
             'activity_type' => 'session.revoked',
         ]);
     }
 
     public function test_cannot_revoke_another_users_token_through_target_endpoint(): void
     {
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
 
-        $adminToken = $this->superAdmin->createToken('admin-token');
+        $adminToken = $this->adminUser->createToken('admin-token');
 
         $response = $this->deleteJson("/api/users/{$this->targetUser->id}/sessions/{$adminToken->accessToken->id}");
 
@@ -172,7 +172,7 @@ class UserActiveSessionsApiTest extends TestCase
         $this->assertDatabaseMissing('personal_access_tokens', ['id' => $token3->accessToken->id]);
 
         // Admin revokes ALL remaining target user sessions
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
         $adminResponse = $this->deleteJson("/api/users/{$this->targetUser->id}/sessions");
 
         $adminResponse->assertStatus(200);
@@ -181,7 +181,7 @@ class UserActiveSessionsApiTest extends TestCase
 
     public function test_cannot_revoke_sessions_for_deleted_user(): void
     {
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
 
         $token = $this->targetUser->createToken('session-1');
         $this->targetUser->delete();
