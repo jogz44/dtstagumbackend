@@ -6,7 +6,7 @@ return [
 
     'allowed_methods' => ['*'],
 
-  'allowed_origins' => ['*'],
+    'allowed_origins' => ['*'], // Allows all origins freely for local testing
 
     'allowed_origins_patterns' => [],
 
@@ -16,6 +16,6 @@ return [
 
     'max_age' => 0,
 
-    'supports_credentials' => false,
+    'supports_credentials' => false, // Set to false to prevent strict browser origin blocking during local dev
 
 ];
