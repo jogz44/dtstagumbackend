@@ -80,4 +80,116 @@ class Document extends Model
     {
         return $this->hasMany(DocumentAcknowledgement::class);
     }
+
+    public function scopeForMyDocuments($query, User $user)
+    {
+        $officeName = $user->office?->name;
+        $divisionName = $user->division?->name;
+        $fullName = $user->full_name;
+
+        return $query->where('status', '!=', 'archived')
+            ->where(function ($q) use ($user, $officeName, $divisionName, $fullName) {
+                // Outgoing/Created by user
+                $q->where(function ($q1) use ($user) {
+                    $q1->where('created_by', $user->id)
+                       ->where('is_confidential', false)
+                       ->where(function ($q2) {
+                           $q2->where('self_assign', true)
+                              ->orWhere('is_internal', false);
+                       });
+                })
+                // OR Incoming/Assigned to user
+                ->orWhere(function ($qIncoming) use ($officeName, $divisionName, $fullName, $user) {
+                    $qIncoming->where('is_internal', false)
+                       ->where('status', '!=', 'completed')
+                       ->where('status', '!=', 'released')
+                       ->where(function ($q3) use ($officeName, $divisionName, $fullName, $user) {
+                           $q3->where('assigned_user', $fullName)
+                             ->orWhere('assigned_user', $user->id)
+                             ->orWhere(function ($q4) use ($officeName, $divisionName) {
+                                 $q4->where('is_confidential', false)
+                                    ->where('office_assignment', $officeName)
+                                    ->when($divisionName, function ($q5) use ($divisionName) {
+                                        $q5->where('division_assignment', $divisionName);
+                                    });
+                             });
+                       });
+                });
+            });
+    }
+
+    public function scopeForRegistry($query, User $user)
+    {
+        return $query->where('is_confidential', false)
+            ->where('status', '!=', 'archived')
+            ->where(function ($q) use ($user) {
+                $officeName = $user->office?->name;
+
+                if ($user->office_id) {
+                    $q->whereHas('creator', function ($q2) use ($user) {
+                        $q2->where('office_id', $user->office_id);
+                    });
+                }
+
+                if ($officeName) {
+                    $q->orWhere('office_assignment', $officeName)
+                      ->orWhere('send_to_all', true)
+                      ->orWhereHas('histories', function ($q3) use ($officeName) {
+                          $q3->where('action', 'shared')
+                             ->where('to_office', $officeName);
+                      });
+                } else {
+                    $q->orWhere('send_to_all', true);
+                }
+            });
+    }
+
+    public function scopeForIncoming($query, User $user)
+    {
+        $officeName = $user->office?->name;
+        $divisionName = $user->division?->name;
+        $fullName = $user->full_name;
+
+        return $query->where(function ($q) use ($officeName, $divisionName, $fullName, $user) {
+            // Specifically assigned to this user
+            $q->where('assigned_user', $fullName)
+              ->orWhere('assigned_user', $user->id)
+              ->orWhere(function ($q2) use ($officeName, $divisionName) {
+                  $q2->where('is_confidential', false)
+                     ->where('office_assignment', $officeName)
+                     ->when($divisionName, function ($q3) use ($divisionName) {
+                         $q3->where('division_assignment', $divisionName);
+                     });
+              });
+        })->where('is_internal', false)
+          ->where('status', '!=', 'completed')
+          ->where('status', '!=', 'archived')
+          ->where('status', '!=', 'released');
+    }
+
+    public function scopeForOutgoing($query, User $user)
+    {
+        $officeName = $user->office?->name;
+
+        return $query->where(function ($q) use ($user, $officeName) {
+            $q->where(function ($q2) use ($user) {
+                $q2->whereIn('status', ['released', 'outgoing']);
+                if ($user->office_id) {
+                    $q2->whereHas('creator', function ($qC) use ($user) {
+                        $qC->where('office_id', $user->office_id);
+                    });
+                } else {
+                    $q2->where('created_by', $user->id);
+                }
+            });
+
+            if ($officeName) {
+                $q->orWhereHas('histories', function ($q3) use ($officeName) {
+                    $q3->whereIn('action', ['assigned', 'transfer'])
+                       ->where('from_office', $officeName)
+                       ->whereColumn('from_office', '!=', 'to_office');
+                });
+            }
+        });
+    }
 }
