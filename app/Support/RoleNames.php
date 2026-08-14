@@ -4,7 +4,7 @@ namespace App\Support;
 
 final class RoleNames
 {
-    public const ADMIN = 'super_admin';
+    public const ADMIN = 'admin';
     public const SUPERVISOR = 'supervisor';
     public const RECEIVER = 'receiver';
 

@@ -28,15 +28,29 @@ class PreviewPmisEmployees extends Command
             $employees = $pmisEmployees->previewRows($limit);
 
             $this->table(
-                ['PMISNo', 'Full Name', 'Designation', 'DesigCode', 'Office', 'Status'],
-                $employees->map(fn ($employee) => [
-                    data_get($employee, 'PMISNo'),
-                    $pmisEmployees->fullName($employee),
-                    data_get($employee, 'Designation'),
-                    data_get($employee, 'DesigCode'),
-                    data_get($employee, 'Office'),
-                    data_get($employee, 'Status'),
-                ])->all()
+                ['PMISNo', 'Full Name', 'Birth Date', 'Designation', 'DesigCode', 'Office', 'Division', 'Status'],
+                $employees->map(function ($employee) use ($pmisEmployees) {
+                    $birthDate = data_get($employee, 'BirthDate');
+                    $formattedBirthDate = filled($birthDate)
+                        ? \Illuminate\Support\Carbon::parse($birthDate)->format('Y-m-d')
+                        : 'none';
+
+                    $division = data_get($employee, 'Divisions');
+                    $divisionStr = filled($division) && strtoupper(trim((string) $division)) !== 'NONE'
+                        ? trim((string) $division)
+                        : 'None';
+
+                    return [
+                        data_get($employee, 'PMISNo'),
+                        $pmisEmployees->fullName($employee),
+                        $formattedBirthDate,
+                        data_get($employee, 'Designation'),
+                        data_get($employee, 'DesigCode'),
+                        data_get($employee, 'Office'),
+                        $divisionStr,
+                        data_get($employee, 'Status'),
+                    ];
+                })->all()
             );
 
             $idValues = $employees->pluck('PMISNo');

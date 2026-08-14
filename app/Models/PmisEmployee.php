@@ -4,12 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class PmisEmployee extends Model
 {
     use HasUuids;
-
-    protected $connection = 'mysql';
 
     public $incrementing = false;
 
@@ -20,9 +19,11 @@ class PmisEmployee extends Model
         'first_name',
         'middle_name',
         'last_name',
+        'birth_date',
         'designation',
         'designation_code',
         'office',
+        'division',
         'employment_status',
         'telephone',
         'pmis_synced_at',
@@ -31,7 +32,13 @@ class PmisEmployee extends Model
     protected function casts(): array
     {
         return [
+            'birth_date' => 'date',
             'pmis_synced_at' => 'datetime',
         ];
+    }
+
+    public function user(): HasOne
+    {
+        return $this->hasOne(User::class, 'pmis_employee_id');
     }
 }

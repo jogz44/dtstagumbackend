@@ -5,8 +5,12 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreUserRequest;
 use App\Http\Requests\UpdateUserRequest;
 use App\Http\Resources\UserResource;
+use App\Models\Division;
+use App\Models\Office;
+use App\Models\PmisEmployee;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\UserInitialPasswordService;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -55,9 +59,51 @@ class UserController extends Controller
     {
         $user = DB::transaction(function () use ($request, $audit) {
             $validated = $request->validated();
-            $temporaryPassword = $this->temporaryPasswordFromBirthdate($validated['birthdate']);
+
+            $employee = PmisEmployee::findOrFail($validated['pmis_employee_id']);
+
+            if ($employee->user()->exists()) {
+                abort(response()->json([
+                    'message' => 'This PMIS employee already has a linked portal account.',
+                    'errors' => ['pmis_employee_id' => ['This PMIS employee already has a linked portal account.']],
+                ], 422));
+            }
+
+            if ($employee->birth_date === null) {
+                abort(response()->json([
+                    'message' => 'This employee does not have a verified birth date in PMIS and cannot be issued the standard temporary password.',
+                    'errors' => ['pmis_employee_id' => ['This employee does not have a verified birth date in PMIS.']],
+                ], 422));
+            }
+
+            $initialPasswordService = app(UserInitialPasswordService::class);
+            $temporaryPassword = $initialPasswordService->fromEmployee($employee);
+
+            // Auto-fill employee identity fields from PMIS record
+            $validated['first_name'] = $employee->first_name ?: '';
+            $validated['last_name'] = $employee->last_name ?: '';
+            $validated['employee_id'] = $employee->pmis_no;
+            $validated['birthdate'] = $employee->birth_date->format('Y-m-d');
+            $validated['position'] = $employee->designation;
+            $validated['employment_status'] = $employee->employment_status;
+
+            // Auto-generate unique username if not manually provided
+            if (! isset($validated['username']) || ! filled($validated['username'])) {
+                $validated['username'] = $this->generateUsername($employee);
+            }
+
+            // Conservative Office and Division resolution from PMIS strings
+            if (! isset($validated['office_id']) || ! filled($validated['office_id'])) {
+                $validated['office_id'] = $this->resolveOfficeId($employee->office);
+            }
+
+            if (! isset($validated['division_id']) || ! filled($validated['division_id'])) {
+                $validated['division_id'] = $this->resolveDivisionId($validated['office_id'], $employee->division);
+            }
+
             $validated['password'] = Hash::make($temporaryPassword);
             $validated['must_change_password'] = true;
+            $validated['is_active'] = $request->boolean('is_active', true);
 
             $user = User::create($validated);
             $this->syncAuthorizationState($user, $request);
@@ -76,7 +122,7 @@ class UserController extends Controller
                 $request->user(),
                 'account.created',
                 'User Management',
-                "Created user account for {$user->first_name} {$user->last_name}.",
+                "Created portal account for PMIS employee {$user->first_name} {$user->last_name} (PMIS No. {$employee->pmis_no}).",
                 $request,
                 [
                     'resource_type' => 'User',
@@ -87,8 +133,7 @@ class UserController extends Controller
             return $user;
         });
 
-        $resource = (new UserResource($user->load(['office', 'division', 'roles'])))->resolve();
-        $resource['temporary_password'] = $this->temporaryPasswordFromBirthdate($user->birthdate);
+        $resource = (new UserResource($user->load(['office', 'division', 'roles', 'pmisEmployee'])))->resolve();
 
         return response()->json($resource, 201);
     }
@@ -99,7 +144,7 @@ class UserController extends Controller
             $before = $audit->userSnapshot($user->loadMissing('roles'));
             $validated = $request->validated();
 
-            if ($user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN)) {
+            if ($user->hasRole('admin') || $user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN)) {
                 unset($validated['role'], $validated['is_active']);
             }
 
@@ -278,5 +323,64 @@ class UserController extends Controller
             ->join(', ');
 
         return 'Updated '.$changed.'.';
+    }
+
+    private function generateUsername(PmisEmployee $employee): string
+    {
+        $firstName = trim((string) $employee->first_name);
+        $lastName = trim((string) $employee->last_name);
+
+        $firstInitial = $firstName !== '' ? mb_substr($firstName, 0, 1) : 'e';
+        $rawCandidate = strtolower($firstInitial.$lastName);
+        $baseUsername = preg_replace('/[^a-z0-9]/', '', $rawCandidate);
+
+        if ($baseUsername === '') {
+            $baseUsername = 'emp'.preg_replace('/[^0-9]/', '', (string) $employee->pmis_no);
+        }
+
+        $username = $baseUsername;
+        $suffix = 2;
+
+        while (User::where('username', $username)->whereNull('deleted_at')->exists()) {
+            $username = $baseUsername.$suffix;
+            $suffix++;
+        }
+
+        return $username;
+    }
+
+    private function resolveOfficeId(?string $pmisOffice): ?string
+    {
+        if ($pmisOffice === null || trim($pmisOffice) === '') {
+            return null;
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', strtolower(trim($pmisOffice)));
+
+        $office = Office::query()
+            ->whereRaw('LOWER(TRIM(name)) = ?', [$normalized])
+            ->orWhereRaw('LOWER(TRIM(short_name)) = ?', [$normalized])
+            ->first();
+
+        return $office?->id;
+    }
+
+    private function resolveDivisionId(?string $officeId, ?string $pmisDivision): ?string
+    {
+        if ($officeId === null || $pmisDivision === null || trim($pmisDivision) === '') {
+            return null;
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', strtolower(trim($pmisDivision)));
+
+        $division = Division::query()
+            ->where('office_id', $officeId)
+            ->where(function ($query) use ($normalized) {
+                $query->whereRaw('LOWER(TRIM(name)) = ?', [$normalized])
+                    ->orWhereRaw('LOWER(TRIM(short_name)) = ?', [$normalized]);
+            })
+            ->first();
+
+        return $division?->id;
     }
 }

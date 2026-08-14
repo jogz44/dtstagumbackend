@@ -15,7 +15,9 @@ class PmisEmployeeService
         'Surname',
         'Firstname',
         'Middlename',
+        'BirthDate',
         'Office',
+        'Divisions',
         'Status',
         'Designation',
         'DesigCode',
@@ -54,9 +56,11 @@ class PmisEmployeeService
             'first_name' => $this->normalize(data_get($employee, 'Firstname')),
             'middle_name' => $this->normalize(data_get($employee, 'Middlename')),
             'last_name' => $this->normalize(data_get($employee, 'Surname')),
+            'birth_date' => $this->normalizeDate(data_get($employee, 'BirthDate')),
             'designation' => $this->normalize(data_get($employee, 'Designation')),
             'designation_code' => $this->normalize(data_get($employee, 'DesigCode')),
             'office' => $this->normalize(data_get($employee, 'Office')),
+            'division' => $this->normalizeDivision(data_get($employee, 'Divisions')),
             'employment_status' => $this->normalize(data_get($employee, 'Status')),
             'telephone' => $this->normalize(data_get($employee, 'TelNo')),
         ];
@@ -108,5 +112,30 @@ class PmisEmployeeService
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    private function normalizeDivision(mixed $value): ?string
+    {
+        $raw = $this->normalize($value);
+        if ($raw === null || strtoupper($raw) === 'NONE') {
+            return null;
+        }
+
+        return $raw;
+    }
+
+    private function normalizeDate(mixed $value): ?string
+    {
+        $raw = $this->normalize($value);
+        if ($raw === null) {
+            return null;
+        }
+
+        try {
+            $date = \Illuminate\Support\Carbon::parse($raw);
+            return $date->year > 1900 ? $date->format('Y-m-d') : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 }

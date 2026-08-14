@@ -25,9 +25,11 @@ class SyncPmisEmployees extends Command
         'first_name',
         'middle_name',
         'last_name',
+        'birth_date',
         'designation',
         'designation_code',
         'office',
+        'division',
         'employment_status',
         'telephone',
         'pmis_synced_at',
@@ -39,9 +41,11 @@ class SyncPmisEmployees extends Command
         'first_name',
         'middle_name',
         'last_name',
+        'birth_date',
         'designation',
         'designation_code',
         'office',
+        'division',
         'employment_status',
         'telephone',
     ];
@@ -277,7 +281,21 @@ class SyncPmisEmployees extends Command
     private function hasChanges(PmisEmployee $localEmployee, array $attributes): bool
     {
         foreach (self::COMPARED_FIELDS as $field) {
-            if (($localEmployee->{$field} ?? null) !== ($attributes[$field] ?? null)) {
+            $localValue = $localEmployee->{$field};
+
+            if ($field === 'birth_date') {
+                $localStr = $localValue instanceof \DateTimeInterface
+                    ? $localValue->format('Y-m-d')
+                    : (filled($localValue) ? (string) $localValue : null);
+                $attrStr = $attributes[$field] ?? null;
+
+                if ($localStr !== $attrStr) {
+                    return true;
+                }
+                continue;
+            }
+
+            if (($localValue ?? null) !== ($attributes[$field] ?? null)) {
                 return true;
             }
         }

@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
+use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
@@ -51,6 +52,15 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json($request->user());
     });
 
+    Route::post('/logout', function (Request $request) {
+        $token = $request->user()->currentAccessToken();
+        if ($token && method_exists($token, 'delete')) {
+            $token->delete();
+        }
+
+        return response()->json(['message' => 'Logged out successfully.']);
+    });
+
     Route::post('/change-password', function (Request $request) {
         $request->validate([
             'current_password' => 'required|string',
@@ -61,6 +71,15 @@ Route::middleware('auth:sanctum')->group(function () {
 
         if (! Hash::check($request->current_password, $user->password)) {
             return response()->json(['message' => 'Current password is incorrect.'], 422);
+        }
+
+        if ($user->pmisEmployee && app(\App\Services\UserInitialPasswordService::class)->matchesEmployeeBirthday($user->pmisEmployee, $request->new_password)) {
+            return response()->json([
+                'message' => 'Choose a password different from your temporary birthday password.',
+                'errors' => [
+                    'new_password' => ['Choose a password different from your temporary birthday password.'],
+                ],
+            ], 422);
         }
 
         $user->update([
@@ -77,6 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('password.changed')->group(function () {
+        Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/documents', [DocumentController::class, 'index']);
         Route::post('/documents', [DocumentController::class, 'store']);

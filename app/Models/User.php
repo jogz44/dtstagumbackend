@@ -40,6 +40,7 @@ class User extends Authenticatable
         'office_id',
         'division_id',
         'employee_id',
+        'pmis_employee_id',
         'birthdate',
         'position',
         'employment_status',
@@ -54,12 +55,21 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    protected $attributes = [
+        'must_change_password' => false,
+    ];
+
     protected $casts = [
         'birthdate' => 'date',
         'is_active' => 'boolean',
         'must_change_password' => 'boolean',
         'last_login_at' => 'datetime',
     ];
+
+    public function pmisEmployee(): BelongsTo
+    {
+        return $this->belongsTo(PmisEmployee::class, 'pmis_employee_id');
+    }
 
     public function createdDocuments(): HasMany
     {

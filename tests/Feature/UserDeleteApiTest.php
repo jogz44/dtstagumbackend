@@ -37,10 +37,30 @@ class UserDeleteApiTest extends TestCase
             ]);
         }
 
+        if (! DB::table('roles')->where('name', 'admin')->exists()) {
+            DB::table('roles')->insert([
+                'id' => (string) Str::uuid(),
+                'name' => 'admin',
+                'guard_name' => 'web',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
         if (! DB::table('roles')->where('name', 'employee')->exists()) {
             DB::table('roles')->insert([
                 'id' => (string) Str::uuid(),
                 'name' => 'employee',
+                'guard_name' => 'web',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+        }
+
+        if (! DB::table('permissions')->where('name', 'users.manage')->exists()) {
+            DB::table('permissions')->insert([
+                'id' => (string) Str::uuid(),
+                'name' => 'users.manage',
                 'guard_name' => 'web',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -55,10 +75,9 @@ class UserDeleteApiTest extends TestCase
             'first_name' => 'Super',
             'last_name' => 'Admin',
             'office_id' => $this->office->id,
-            'birthdate' => '1990-01-01',
             'is_active' => true,
         ]);
-        $this->superAdmin->assignRole('super_admin');
+        $this->superAdmin->assignRole('admin');
 
         $this->targetUser = User::create([
             'username' => 'targetuser',

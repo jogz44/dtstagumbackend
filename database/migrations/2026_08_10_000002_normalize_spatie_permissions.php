@@ -32,7 +32,7 @@ return new class extends Migration
         }
 
         $rolePermissions = [
-            'super_admin' => [
+            'admin' => [
                 'can_view_confidential' => true,
                 'can_edit_document' => true,
                 'can_share_document' => true,
