@@ -254,6 +254,8 @@ class DocumentController extends Controller
             'actor' => $canShowSensitiveFields ? $this->userPayload($event->user) : null,
             'from_user' => $canShowSensitiveFields ? $this->userPayload($event->fromUser, $metadata['from_user_name'] ?? null) : null,
             'to_user' => $canShowSensitiveFields ? $this->userPayload($event->toUser, $metadata['assigned_name'] ?? $metadata['to_user_name'] ?? null) : null,
+            'from_office' => $event->from_office,
+            'to_office' => $event->to_office,
             'status_before' => $event->status_before,
             'status_after' => $event->status_after,
             'remarks' => $canShowSensitiveFields ? $event->remarks : null,
@@ -435,7 +437,58 @@ class DocumentController extends Controller
             'document' => $document->fresh(),
         ]);
     }
+    public function returnDocument(Request $request, Document $document): JsonResponse
+{
+    $validated = $request->validate([
+        'remarks' => 'nullable|string',
+    ]);
 
+    $statusBefore = $document->status;
+    $fromOffice = $document->office_assignment;
+    $toOffice = $document->origin_sender;
+
+    $document->update([
+        'status' => 'returned',
+        'office_assignment' => $document->origin_sender,
+        'assigned_user' => null,
+    ]);
+
+    DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
+        'remarks' => $validated['remarks'] ?? 'Document returned to sender.',
+        'from_office' => $fromOffice,
+        'to_office' => $toOffice,
+        'status_before' => $statusBefore,
+        'status_after' => 'returned',
+    ]);
+
+    return response()->json([
+        'message' => 'Document returned successfully.',
+        'document' => $document->fresh(),
+    ]);
+}
+public function complete(Request $request, Document $document): JsonResponse
+{
+    $validated = $request->validate([
+        'remarks' => 'nullable|string',
+    ]);
+
+    $statusBefore = $document->status;
+
+    $document->update([
+        'status' => 'completed',
+    ]);
+
+    DocumentHistory::record($document, DocumentHistory::COMPLETED, $request->user(), [
+        'remarks' => $validated['remarks'] ?? 'Document marked as complete.',
+        'status_before' => $statusBefore,
+        'status_after' => 'completed',
+    ]);
+
+    return response()->json([
+        'message' => 'Document marked as complete.',
+        'document' => $document->fresh(),
+    ]);
+}
     public function share(Request $request, Document $document): JsonResponse
     {
         $validated = $request->validate([

@@ -81,43 +81,40 @@ class Document extends Model
         return $this->hasMany(DocumentAcknowledgement::class);
     }
 
-    public function scopeForMyDocuments($query, User $user)
-    {
-        $officeName = $user->office?->name;
-        $divisionName = $user->division?->name;
-        $fullName = $user->full_name;
+ public function scopeForMyDocuments($query, User $user)
+{
+    $officeName = $user->office?->name;
+    $divisionName = $user->division?->name;
+    $fullName = $user->full_name;
 
-        return $query->where('status', '!=', 'archived')
-            ->where(function ($q) use ($user, $officeName, $divisionName, $fullName) {
-                // Outgoing/Created by user
-                $q->where(function ($q1) use ($user) {
-                    $q1->where('created_by', $user->id)
-                       ->where('is_confidential', false)
-                       ->where(function ($q2) {
-                           $q2->where('self_assign', true)
-                              ->orWhere('is_internal', false);
-                       });
-                })
-                // OR Incoming/Assigned to user
-                ->orWhere(function ($qIncoming) use ($officeName, $divisionName, $fullName, $user) {
-                    $qIncoming->where('is_internal', false)
-                       ->where('status', '!=', 'completed')
-                       ->where('status', '!=', 'released')
-                       ->where(function ($q3) use ($officeName, $divisionName, $fullName, $user) {
-                           $q3->where('assigned_user', $fullName)
-                             ->orWhere('assigned_user', $user->id)
-                             ->orWhere(function ($q4) use ($officeName, $divisionName) {
-                                 $q4->where('is_confidential', false)
-                                    ->where('office_assignment', $officeName)
-                                    ->when($divisionName, function ($q5) use ($divisionName) {
-                                        $q5->where('division_assignment', $divisionName);
-                                    });
-                             });
-                       });
-                });
+    return $query->where('status', '!=', 'archived')
+        ->where(function ($q) use ($user, $officeName, $divisionName, $fullName) {
+            // Outgoing/Created by user
+            $q->where(function ($q1) use ($user) {
+                $q1->where('created_by', $user->id)
+                   ->where('is_confidential', false)
+                   ->where(function ($q2) {
+                       $q2->where('self_assign', true)
+                          ->orWhere('is_internal', false);
+                   });
+            })
+  
+            ->orWhere(function ($qIncoming) use ($officeName, $divisionName, $fullName, $user) {
+                $qIncoming->where('is_internal', false)
+                   ->where('is_confidential', false)
+                   ->where(function ($q3) use ($officeName, $divisionName, $fullName, $user) {
+                       $q3->where('assigned_user', $fullName)
+                         ->orWhere('assigned_user', $user->id)
+                         ->orWhere(function ($q4) use ($officeName, $divisionName) {
+                             $q4->where('office_assignment', $officeName)
+                                ->when($divisionName, function ($q5) use ($divisionName) {
+                                    $q5->where('division_assignment', $divisionName);
+                                });
+                         });
+                   });
             });
-    }
-
+        });
+}
     public function scopeForRegistry($query, User $user)
     {
         return $query->where('is_confidential', false)

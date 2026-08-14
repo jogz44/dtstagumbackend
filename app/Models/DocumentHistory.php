@@ -40,6 +40,7 @@ class DocumentHistory extends Model
     public const RELEASED = 'RELEASED';
     public const ASSIGNED = 'ASSIGNED';
     public const REASSIGNED = 'REASSIGNED';
+    public const COMPLETED = 'COMPLETED';
 
     public const EVENT_TYPES = [
         self::REGISTERED,
@@ -53,6 +54,7 @@ class DocumentHistory extends Model
         self::RELEASED,
         self::ASSIGNED,
         self::REASSIGNED,
+        self::COMPLETED,
     ];
 
     public $incrementing = false;
