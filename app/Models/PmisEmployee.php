@@ -23,6 +23,7 @@ class PmisEmployee extends Model
         'designation',
         'designation_code',
         'office',
+        'division',
         'employment_status',
         'telephone',
         'pmis_synced_at',

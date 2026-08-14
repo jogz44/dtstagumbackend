@@ -18,6 +18,7 @@ class UserResource extends JsonResource
             'last_name' => $this->last_name,
             'full_name' => $this->full_name,
             'employee_id' => $this->employee_id,
+            'pmis_employee_id' => $this->pmis_employee_id,
             'birthdate' => $this->birthdate?->toDateString(),
             'position' => $this->position,
             'employment_status' => $this->employment_status,
@@ -26,6 +27,7 @@ class UserResource extends JsonResource
             'must_change_password' => $this->must_change_password,
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),
+            'pmis_employee' => $this->whenLoaded('pmisEmployee'),
             'role' => $role ? [
                 'id' => $role->id,
                 'name' => $role->name,

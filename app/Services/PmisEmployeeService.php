@@ -17,6 +17,7 @@ class PmisEmployeeService
         'Middlename',
         'BirthDate',
         'Office',
+        'Divisions',
         'Status',
         'Designation',
         'DesigCode',
@@ -59,6 +60,7 @@ class PmisEmployeeService
             'designation' => $this->normalize(data_get($employee, 'Designation')),
             'designation_code' => $this->normalize(data_get($employee, 'DesigCode')),
             'office' => $this->normalize(data_get($employee, 'Office')),
+            'division' => $this->normalizeDivision(data_get($employee, 'Divisions')),
             'employment_status' => $this->normalize(data_get($employee, 'Status')),
             'telephone' => $this->normalize(data_get($employee, 'TelNo')),
         ];
@@ -110,6 +112,16 @@ class PmisEmployeeService
         $value = trim((string) $value);
 
         return $value === '' ? null : $value;
+    }
+
+    private function normalizeDivision(mixed $value): ?string
+    {
+        $raw = $this->normalize($value);
+        if ($raw === null || strtoupper($raw) === 'NONE') {
+            return null;
+        }
+
+        return $raw;
     }
 
     private function normalizeDate(mixed $value): ?string
