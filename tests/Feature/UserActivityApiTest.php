@@ -19,7 +19,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_authorized_user_can_read_activity_log(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -87,7 +87,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_activity_events_are_ordered_newest_first(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         $older = ActivityEvent::create([
@@ -118,7 +118,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_server_side_pagination_and_clamping(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         for ($i = 1; $i <= 30; $i++) {
@@ -155,7 +155,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_search_filters_activity_events(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -185,7 +185,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_activity_type_and_action_alias_filters(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -223,7 +223,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_module_and_category_alias_filters(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -254,7 +254,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_outcome_filter(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -286,7 +286,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_valid_date_range_filter(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -316,7 +316,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_invalid_date_range_returns_422_validation_error(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         Sanctum::actingAs($admin);
@@ -329,7 +329,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_null_actor_safety_when_user_is_deleted_or_system(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -355,7 +355,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_sensitive_values_are_not_exposed(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $targetUser = $this->createUser('target_user', 'Target', 'User');
 
         ActivityEvent::create([
@@ -381,7 +381,7 @@ class UserActivityApiTest extends TestCase
 
     public function test_creating_user_records_account_created_in_admin_activity_log(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         Sanctum::actingAs($admin);
 
         $office = Office::firstOrCreate(['code' => 'CMO'], ['name' => "City Mayor's Office", 'is_active' => true]);
@@ -439,9 +439,9 @@ class UserActivityApiTest extends TestCase
             ->assertJsonPath('data.0.changed_by', $admin->full_name);
     }
 
-    private function createSuperAdmin(): User
+    private function createAdminUser(): User
     {
-        $role = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+        $role = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
         $permission = Permission::firstOrCreate(['name' => 'documents.view_confidential', 'guard_name' => 'web']);
         $role->givePermissionTo($permission);
 
