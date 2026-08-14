@@ -388,13 +388,16 @@ class UserActivityApiTest extends TestCase
         $division = Division::firstOrCreate(['office_id' => $office->id, 'code' => 'ADMIN'], ['name' => 'Administrative Division', 'is_active' => true]);
         Role::firstOrCreate(['name' => 'user', 'guard_name' => 'web']);
 
-        $payload = [
-            'username' => 'juandelacruz',
+        $employee = \App\Models\PmisEmployee::create([
+            'pmis_no' => '998877',
             'first_name' => 'Juan',
             'last_name' => 'Dela Cruz',
-            'birthdate' => '1995-05-15',
-            'office_id' => $office->id,
-            'division_id' => $division->id,
+            'birth_date' => '1995-05-15',
+            'office' => "City Mayor's Office",
+        ]);
+
+        $payload = [
+            'pmis_employee_id' => $employee->id,
             'role' => 'user',
             'is_active' => true,
         ];
@@ -412,7 +415,7 @@ class UserActivityApiTest extends TestCase
             'resource_type' => 'User',
             'resource_id' => (string) $createdUserId,
             'outcome' => 'success',
-            'description' => 'Created user account for Juan Dela Cruz.',
+            'description' => 'Created portal account for PMIS employee Juan Dela Cruz (PMIS No. 998877).',
         ]);
 
         $adminActivityResponse = $this->getJson("/api/users/{$admin->id}/activity");
@@ -420,7 +423,7 @@ class UserActivityApiTest extends TestCase
             ->assertOk()
             ->assertJsonPath('data.0.activity_type', 'account.created')
             ->assertJsonPath('data.0.module', 'User Management')
-            ->assertJsonPath('data.0.description', 'Created user account for Juan Dela Cruz.')
+            ->assertJsonPath('data.0.description', 'Created portal account for PMIS employee Juan Dela Cruz (PMIS No. 998877).')
             ->assertJsonPath('data.0.actor.id', $admin->id)
             ->assertJsonPath('data.0.actor.name', $admin->full_name);
 

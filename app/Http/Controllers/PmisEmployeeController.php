@@ -21,6 +21,7 @@ class PmisEmployeeController extends Controller
         $validated = $request->validate([
             'search' => ['nullable', 'string', 'max:100'],
             'office' => ['nullable', 'string', 'max:150'],
+            'division' => ['nullable', 'string', 'max:150'],
             'employment_status' => ['nullable', 'string', 'max:100'],
             'available_only' => ['nullable'],
             'page' => ['nullable', 'integer', 'min:1'],
@@ -45,12 +46,17 @@ class PmisEmployeeController extends Controller
                     ->orWhere(DB::raw("CONCAT(first_name, ' ', last_name)"), 'LIKE', "%{$search}%")
                     ->orWhere(DB::raw("CONCAT(first_name, ' ', middle_name, ' ', last_name)"), 'LIKE', "%{$search}%")
                     ->orWhere('designation', 'LIKE', "%{$search}%")
-                    ->orWhere('office', 'LIKE', "%{$search}%");
+                    ->orWhere('office', 'LIKE', "%{$search}%")
+                    ->orWhere('division', 'LIKE', "%{$search}%");
             });
         }
 
         if (isset($validated['office']) && filled($validated['office'])) {
             $query->where('office', $validated['office']);
+        }
+
+        if (isset($validated['division']) && filled($validated['division'])) {
+            $query->where('division', $validated['division']);
         }
 
         if (isset($validated['employment_status']) && filled($validated['employment_status'])) {
@@ -83,6 +89,7 @@ class PmisEmployeeController extends Controller
                 'designation' => $employee->designation,
                 'designation_code' => $employee->designation_code,
                 'office' => $employee->office,
+                'division' => $employee->division,
                 'employment_status' => $employee->employment_status,
                 'telephone' => $employee->telephone,
                 'has_portal_account' => (bool) $employee->user_exists,
