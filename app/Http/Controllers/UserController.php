@@ -205,7 +205,7 @@ class UserController extends Controller
 
     private function isProtectedAccount(User $user): bool
     {
-        return $user->hasRole('admin') || $user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN);
+        return $user->hasRole('admin') || $user->hasRole(RoleNames::ADMIN);
     }
 
     public function destroy(Request $request, User $user, AuditService $audit): JsonResponse
@@ -270,8 +270,8 @@ class UserController extends Controller
 
     private function syncAuthorizationState(User $user, Request $request): void
     {
-        // Protected admin/super_admin roles cannot be modified via user updates
-        if ($user->exists && ($user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN))) {
+        // Protected admin roles cannot be modified via user updates
+        if ($user->exists && ($user->hasRole('admin') || $user->hasRole(RoleNames::ADMIN))) {
             return;
         }
 

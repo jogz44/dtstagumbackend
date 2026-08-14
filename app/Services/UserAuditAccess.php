@@ -9,7 +9,7 @@ class UserAuditAccess
 {
     public function canRead(User $authUser, User $targetUser): bool
     {
-        if ($authUser->id === $targetUser->id || $authUser->hasRole(RoleNames::ADMIN) || $authUser->hasRole('super_admin')) {
+        if ($authUser->id === $targetUser->id || $authUser->hasRole(RoleNames::ADMIN)) {
             return true;
         }
 

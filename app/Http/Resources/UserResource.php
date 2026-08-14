@@ -10,6 +10,7 @@ class UserResource extends JsonResource
     public function toArray(Request $request): array
     {
         $role = $this->relationLoaded('roles') ? $this->roles->first() : null;
+        $roleName = $role?->name ? $this->normalizeRoleName($role->name) : null;
 
         return [
             'id' => $this->id,
@@ -34,6 +35,8 @@ class UserResource extends JsonResource
                 'display_name' => $role->display_name,
                 'description' => $role->description,
             ] : null,
+            'role_name' => $roleName,
+            'role_label' => $roleName === 'admin' ? 'Admin' : ($role?->display_name ?: null),
             'roles' => $this->relationLoaded('roles') ? $this->roles->pluck('name')->values() : [],
             'permissions' => $this->relationLoaded('permissions')
                 ? $this->permissions
@@ -61,5 +64,18 @@ class UserResource extends JsonResource
             ->replace(['.', '_', '-'], ' ')
             ->title()
             ->toString();
+    }
+
+    private function normalizeRoleName(?string $roleName): ?string
+    {
+        if (! $roleName) {
+            return null;
+        }
+
+        $value = str($roleName)->lower()->trim()->replaceMatches('/[-\s]+/', '_')->toString();
+
+        return in_array($value, ['admin', 'administrator', 'system_administrator', 'super_admin'], true)
+            ? 'admin'
+            : $value;
     }
 }
