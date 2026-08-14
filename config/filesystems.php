@@ -47,6 +47,13 @@ return [
             'report' => false,
         ],
 
+        'shared_documents' => [
+            'driver' => 'local',
+            'root' => env('SHARED_DOCUMENT_STORAGE_PATH', storage_path('app/documents')),
+            'throw' => false,
+            'report' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),
@@ -61,6 +68,8 @@ return [
         ],
 
     ],
+
+    'document_disk' => env('DOCUMENT_STORAGE_DISK', 'shared_documents'),
 
     /*
     |--------------------------------------------------------------------------

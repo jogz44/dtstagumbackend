@@ -34,7 +34,7 @@ Route::post('/login', function (Request $request) {
 
         return response()->json([
             'message' => 'Login successful',
-            'user' => $user->load(['office', 'division', 'permissionOverrides']),
+            'user' => new \App\Http\Resources\UserResource($user->load(['office', 'division', 'permissionOverrides', 'roles'])),
             'must_change_password' => $user->must_change_password,
             'token' => $token,
         ], 200);

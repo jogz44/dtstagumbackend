@@ -16,6 +16,25 @@ use Illuminate\Support\Str;
 
 class DocumentController extends Controller
 {
+    public function index(Request $request): JsonResponse
+    {
+        $documents = Document::query()
+            ->latest()
+            ->get()
+            ->map(function ($doc) {
+                $assigned = $doc->assigned_user;
+                if (!empty($assigned) && Str::isUuid($assigned)) {
+                    $user = \App\Models\User::find($assigned);
+                    $doc->assigned_user = $user ? $user->full_name : $assigned;
+                }
+                return $doc;
+            });
+
+        return response()->json([
+            'data' => $documents
+        ]);
+    }
+
     public function timeline(Request $request, Document $document, UserAuditAccess $access): JsonResponse
     {
         $viewer = $request->user();
@@ -72,11 +91,13 @@ class DocumentController extends Controller
                 'status' => 'outgoing',
             ]);
 
+            $disk = config('filesystems.document_disk', 'shared_documents');
+
             foreach ($request->file('attachments', []) as $file) {
-                $path = $file->store("documents/{$document->id}", 'local');
+                $path = $file->store("documents/{$document->id}", $disk);
 
                 $document->attachments()->create([
-                    'disk' => 'local',
+                    'disk' => $disk,
                     'path' => $path,
                     'original_name' => $file->getClientOriginalName(),
                     'mime_type' => $file->getMimeType() ?? 'application/octet-stream',
@@ -130,29 +151,18 @@ class DocumentController extends Controller
         });
 
         $audit->activity(
-
             $request->user(),
-
             'document.received',
-
             'Documents',
-
             'Uploaded a new document.',
-
             $request,
-
             [
-
                 'resource_type' => 'document',
-
                 'resource_id' => $document->id,
-
             ],
-
         );
 
         return response()->json([
-
             'message' => 'Document saved successfully.',
             'document' => $document->load('attachments'),
         ], 201);
