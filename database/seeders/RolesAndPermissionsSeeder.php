@@ -11,7 +11,7 @@ class RolesAndPermissionsSeeder extends Seeder
     public function run(): void
     {
         $roles = [
-            ['name' => 'admin', 'guard_name' => 'web', 'display_name' => 'Administrator', 'description' => 'Full system access', 'is_system' => true],
+            ['name' => 'admin', 'guard_name' => 'web', 'display_name' => 'Admin', 'description' => 'Full system access', 'is_system' => true],
             ['name' => 'supervisor', 'guard_name' => 'web', 'display_name' => 'Supervisor', 'description' => 'Can transfer documents', 'is_system' => true],
             ['name' => 'receiver', 'guard_name' => 'web', 'display_name' => 'Receiver', 'description' => 'Can receive documents', 'is_system' => true],
         ];
@@ -23,6 +23,7 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'can_transfer_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Transfer a document'],
             ['name' => 'can_receive_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Only receive this type of document'],
             ['name' => 'can_register_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Register a document'],
+            ['name' => 'users.manage', 'guard_name' => 'web', 'group_name' => 'Users', 'description' => 'Manage user accounts'],
         ];
 
         $roleModels = collect($roles)->mapWithKeys(function (array $role) {

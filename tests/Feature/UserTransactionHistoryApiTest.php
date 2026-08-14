@@ -21,7 +21,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_selected_user_receives_registered_event(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('registrar', 'Regina', 'Registrar');
         $document = $this->createDocumentFor($selectedUser, ['description' => 'Registered document']);
         $event = DocumentHistory::record($document, DocumentHistory::REGISTERED, $selectedUser, [
@@ -44,7 +44,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_selected_user_receives_assigned_events_as_actor_and_assignee(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
         $assignee = $this->createUser('assignee', 'Ariane', 'Assignee');
 
@@ -81,7 +81,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_unrelated_events_are_excluded_and_search_remains_scoped(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
         $unrelated = $this->createUser('unrelated', 'Una', 'Related');
 
@@ -102,7 +102,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_results_are_newest_first_and_pagination_works(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
 
         $oldEvent = DocumentHistory::record($this->createDocumentFor($selectedUser), DocumentHistory::REGISTERED, $selectedUser);
@@ -134,7 +134,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_same_event_is_returned_once_when_user_has_multiple_involvement_roles(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
         $document = $this->createDocumentFor($selectedUser, ['assigned_user' => $selectedUser->full_name]);
 
@@ -154,7 +154,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_current_holder_changes_do_not_remove_old_events_and_null_holder_is_safe(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
         $laterHolder = $this->createUser('holder', 'Henry', 'Holder');
         $document = $this->createDocumentFor($admin, ['assigned_user' => $selectedUser->full_name]);
@@ -195,7 +195,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_filters_use_existing_fields_and_confidential_subject_is_redacted_without_permission(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
         $holder = $this->createUser('holder', 'Henry', 'Holder');
         $document = $this->createDocumentFor($selectedUser, [
@@ -243,7 +243,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_invalid_date_range_is_rejected(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
 
         Sanctum::actingAs($admin);
@@ -277,7 +277,7 @@ class UserTransactionHistoryApiTest extends TestCase
 
     public function test_unknown_canonical_action_is_returned_safely(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $selectedUser = $this->createUser('selected', 'Selena', 'Selected');
         $document = $this->createDocumentFor($selectedUser);
         $event = $document->histories()->create([
@@ -296,10 +296,10 @@ class UserTransactionHistoryApiTest extends TestCase
             ->assertJsonPath('data.0.action', 'TRANSFERRED_TO_OFFICE');
     }
 
-    private function createSuperAdmin(): User
+    private function createAdminUser(): User
     {
         $admin = $this->createUser('admin'.Str::lower(Str::random(5)), 'Ada', 'Admin');
-        $role = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+        $role = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
         $admin->assignRole($role);
 
         return $admin;
