@@ -10,11 +10,12 @@ class EnsurePasswordChanged
 {
     public function handle(Request $request, Closure $next): Response
     {
-        if ($request->user()?->must_change_password) {
+        if ($request->user() && $request->user()->must_change_password === true) {
             return response()->json([
-                'message' => 'You must create a new password before continuing.',
+                'message' => 'Password change required.',
+                'code' => 'PASSWORD_CHANGE_REQUIRED',
                 'must_change_password' => true,
-            ], 423);
+            ], 403);
         }
 
         return $next($request);
