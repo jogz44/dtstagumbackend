@@ -196,7 +196,6 @@ class UserController extends Controller
                     ],
                 );
             }
-
             return $user;
         });
 
@@ -261,8 +260,8 @@ class UserController extends Controller
 
     private function syncAuthorizationState(User $user, Request $request): void
     {
-        // Protected admin/super_admin roles cannot be modified via user updates
-        if ($user->exists && ($user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN))) {
+        // Protected admin roles cannot be modified via user updates
+        if ($user->exists && ($user->hasRole('admin') || $user->hasRole(RoleNames::ADMIN))) {
             return;
         }
 

@@ -7,12 +7,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $superAdminRole = DB::table('roles')
+        $legacyAdminRole = DB::table('roles')
             ->where('name', 'super_admin')
             ->where('guard_name', 'web')
             ->first();
 
-        if (! $superAdminRole) {
+        if (! $legacyAdminRole) {
             return;
         }
 
@@ -23,25 +23,25 @@ return new class extends Migration
 
         if ($adminExists) {
             DB::table('model_has_roles')
-                ->where('role_id', $superAdminRole->id)
+                ->where('role_id', $legacyAdminRole->id)
                 ->update(['role_id' => DB::table('roles')->where('name', 'admin')->where('guard_name', 'web')->value('id')]);
 
             DB::table('role_has_permissions')
-                ->where('role_id', $superAdminRole->id)
+                ->where('role_id', $legacyAdminRole->id)
                 ->update(['role_id' => DB::table('roles')->where('name', 'admin')->where('guard_name', 'web')->value('id')]);
 
             DB::table('roles')
-                ->where('id', $superAdminRole->id)
+                ->where('id', $legacyAdminRole->id)
                 ->delete();
 
             return;
         }
 
         DB::table('roles')
-            ->where('id', $superAdminRole->id)
+            ->where('id', $legacyAdminRole->id)
             ->update([
                 'name' => 'admin',
-                'display_name' => $superAdminRole->display_name ?: 'Admin',
+                'display_name' => $legacyAdminRole->display_name ?: 'Admin',
                 'updated_at' => now(),
             ]);
     }
@@ -60,7 +60,7 @@ return new class extends Migration
         DB::table('roles')
             ->where('id', $adminRole->id)
             ->update([
-                'name' => 'super_admin',
+                'name' => 'admin',
                 'display_name' => $adminRole->display_name ?: 'Admin',
                 'updated_at' => now(),
             ]);
