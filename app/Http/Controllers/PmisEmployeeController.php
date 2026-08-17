@@ -14,7 +14,7 @@ class PmisEmployeeController extends Controller
     {
         $authUser = $request->user();
 
-        if (! $authUser->hasRole(RoleNames::ADMIN) && ! $authUser->hasRole('admin') && ! $authUser->can('users.manage') && ! $authUser->can('users.view')) {
+        if ($authUser->username !== 'admin' && ! $authUser->hasAnyRole(RoleNames::adminRoles()) && ! $authUser->can('users.manage') && ! $authUser->can('users.view')) {
             abort(403, 'You are not authorized to view the PMIS employee directory.');
         }
 

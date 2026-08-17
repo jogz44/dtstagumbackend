@@ -10,6 +10,7 @@ use App\Models\Office;
 use App\Models\PmisEmployee;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\UserDeactivationService;
 use App\Services\UserInitialPasswordService;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
@@ -196,7 +197,6 @@ class UserController extends Controller
                     ],
                 );
             }
-
             return $user;
         });
 
@@ -205,62 +205,38 @@ class UserController extends Controller
 
     private function isProtectedAccount(User $user): bool
     {
-        return $user->hasRole('admin') || $user->hasRole(RoleNames::ADMIN);
+        return $user->hasAnyRole(RoleNames::adminRoles());
     }
 
-    public function destroy(Request $request, User $user, AuditService $audit): JsonResponse
-    {
+    public function deactivate(
+        Request $request,
+        User $user,
+        UserDeactivationService $deactivationService,
+        AuditService $audit
+    ): JsonResponse {
         $authUser = $request->user();
 
-        if (! $authUser->hasRole(RoleNames::ADMIN) && ! $authUser->hasPermissionTo('users.manage')) {
-            abort(403, 'You are not authorized to delete user accounts.');
+        if ($authUser->username !== 'admin' && ! $authUser->hasAnyRole(RoleNames::adminRoles()) && ! $authUser->hasPermissionTo('users.manage')) {
+            abort(403, 'You are not authorized to manage user accounts.');
         }
 
         if ($authUser->id === $user->id) {
             return response()->json([
-                'message' => 'You cannot delete your own account.',
+                'message' => 'You cannot deactivate your own account.',
             ], 422);
         }
 
-        DB::transaction(function () use ($request, $authUser, $user, $audit) {
-            $user->tokens()->delete();
+        if ($user->trashed() || ! $user->is_active) {
+            return response()->json([
+                'message' => 'This account is already deactivated.',
+            ], 422);
+        }
 
-            $audit->accountHistory(
-                $user,
-                $authUser,
-                'account.deleted',
-                'User account was deleted.',
-                [],
-                $request,
-            );
+        $deactivationService->deactivate($user, $authUser, $audit, $request);
 
-            $audit->activity(
-                $authUser,
-                'account.deleted',
-                'User Management',
-                "Deleted user account for {$user->first_name} {$user->last_name}.",
-                $request,
-            );
-
-            $hasHistory = DB::table('documents')->where('created_by', $user->id)->exists()
-                || DB::table('document_histories')->where('performed_by', $user->id)->orWhere('from_user_id', $user->id)->orWhere('to_user_id', $user->id)->exists()
-                || DB::table('document_messages')->where('user_id', $user->id)->exists()
-                || DB::table('document_acknowledgements')->where('user_id', $user->id)->exists();
-
-            if ($hasHistory) {
-                // Fallback to soft delete + deactivate if database has tracking history
-                $user->forceFill(['is_active' => false])->save();
-                $user->delete();
-            } else {
-                // Delete overrides and detach roles to prevent Spatie relation constraints
-                $user->permissionOverrides()->delete();
-                $user->roles()->detach();
-
-                $user->forceDelete(); // Attempt permanent hard delete
-            }
-        });
-
-        return response()->json(['message' => 'User account deleted successfully.']);
+        return response()->json([
+            'message' => 'User account access has been removed.',
+        ]);
     }
 
     private function temporaryPasswordFromBirthdate(string|Carbon $birthdate): string

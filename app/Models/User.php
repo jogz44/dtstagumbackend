@@ -12,16 +12,15 @@ use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
 /**
- * @property string $id
- * @property string $username
- * @property string $first_name
- * @property string $last_name
- * @property string|null $office_id
- * @property string|null $division_id
- * @property string|null $position
- * @property string|null $employee_id
- * @property bool $is_active
- * @property-read string $full_name
+ * MSSMS ACCOUNT RETENTION POLICY
+ *
+ * User records must NEVER be physically deleted.
+ *
+ * Account removal is implemented only through:
+ * - is_active = false
+ * - SoftDeletes / deleted_at
+ *
+ * Never call forceDelete() for User records.
  */
 class User extends Authenticatable
 {

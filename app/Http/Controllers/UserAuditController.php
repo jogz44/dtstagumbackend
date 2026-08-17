@@ -138,7 +138,7 @@ class UserAuditController extends Controller
         ]);
 
         $pageSize = $this->clampedPageSize((int) ($validated['page_size'] ?? $validated['per_page'] ?? 25));
-        $viewerCanSeeConfidential = $request->user()->can('documents.view_confidential');
+        $viewerCanSeeConfidential = $request->user()->can('documents.view_confidential') || $request->user()->can('can_view_confidential');
 
         $events = DocumentHistory::query()
             ->involvingUser($user)
