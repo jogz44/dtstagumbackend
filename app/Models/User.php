@@ -29,6 +29,10 @@ class User extends Authenticatable
 
     public $incrementing = false;
 
+    protected $appends = [
+        'full_name',
+    ];
+
     protected $keyType = 'string';
 
     protected $fillable = [

@@ -150,8 +150,11 @@ class DocumentController extends Controller
             }
 
             // 1. Log in canonical document transaction history.
-            DocumentHistory::record($document, DocumentHistory::REGISTERED, $request->user(), [
-                'remarks' => 'Document registered in the system.',
+            $historyType = $document->is_internal ? DocumentHistory::REGISTERED : DocumentHistory::RECEIVED;
+            $historyRemarks = $document->is_internal ? 'Document created.' : 'Document received.';
+
+            DocumentHistory::record($document, $historyType, $request->user(), [
+                'remarks' => $historyRemarks,
                 'from_office' => $document->origin_sender,
                 'to_office' => $document->office_assignment,
                 'status_after' => $document->status,
