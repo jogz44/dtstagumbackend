@@ -22,9 +22,11 @@ class DocumentController extends Controller
         $tab = $request->query('tab', 'my');
         $query = Document::query()->with([
             'creator',
+            'creator.office',
             'attachments',
             'acknowledgements' => fn ($query) => $query->latest(),
-            'acknowledgements.user:id,first_name,last_name,username,is_active',
+            'acknowledgements.user:id,first_name,last_name,username,is_active,position,office_id',
+            'acknowledgements.user.office',
         ]);
 
         $user = $request->user();
@@ -453,14 +455,14 @@ class DocumentController extends Controller
 
         // Find the last user who assigned, transferred, or created this document before the current user
         $lastHistory = DocumentHistory::where('document_id', $document->id)
-            ->whereIn('action', ['assigned', 'transfer', 'transferred', 'released', 'registered'])
-            ->where('user_id', '!=', $request->user()->id)
+            ->whereIn('action', ['ASSIGNED', 'TRANSFERRED', 'FORWARDED', 'RELEASED', 'REGISTERED'])
+            ->where('performed_by', '!=', $request->user()->id)
             ->latest()
             ->first();
 
         $lastUser = null;
         if ($lastHistory) {
-            $lastUser = User::find($lastHistory->user_id);
+            $lastUser = User::find($lastHistory->performed_by);
         }
         if (! $lastUser) {
             $lastUser = $document->creator;
@@ -595,5 +597,71 @@ public function complete(Request $request, Document $document): JsonResponse
             'message' => 'Message sent successfully.',
             'data' => $message->load('user:id,first_name,last_name,username,position')
         ], 201);
+    }
+
+    public function getDocumentTypes(): JsonResponse
+    {
+        $types = Document::query()
+            ->whereNotNull('document_type')
+            ->where('document_type', '!=', '')
+            ->distinct()
+            ->pluck('document_type')
+            ->toArray();
+
+        $defaults = ['Memo', 'Letter', 'Report'];
+        $combined = array_values(array_unique(array_merge($defaults, $types)));
+
+        return response()->json($combined);
+    }
+
+    public function addAttachment(Request $request, Document $document): JsonResponse
+    {
+        $request->validate([
+            'file' => 'required|file',
+        ]);
+
+        $file = $request->file('file');
+        $disk = config('filesystems.document_disk', 'shared_documents');
+        $path = $file->store("documents/{$document->id}", $disk);
+
+        $attachment = $document->attachments()->create([
+            'disk' => $disk,
+            'path' => $path,
+            'original_name' => $file->getClientOriginalName(),
+            'mime_type' => $file->getMimeType() ?? 'application/octet-stream',
+            'size' => $file->getSize(),
+        ]);
+
+        DocumentHistory::record($document, DocumentHistory::EDITED, $request->user(), [
+            'remarks' => "Added attachment: {$file->getClientOriginalName()}",
+        ]);
+
+        return response()->json([
+            'message' => 'Attachment added successfully.',
+            'attachment' => $attachment,
+            'document' => $document->load('attachments'),
+        ]);
+    }
+
+    public function deleteAttachment(Request $request, \App\Models\DocumentAttachment $attachment): JsonResponse
+    {
+        $document = $attachment->document;
+        $disk = $attachment->disk ?? 'shared_documents';
+        if (Storage::disk($disk)->exists($attachment->path)) {
+            Storage::disk($disk)->delete($attachment->path);
+        }
+        $filename = $attachment->original_name;
+        $attachment->delete();
+
+        if ($document) {
+            DocumentHistory::record($document, DocumentHistory::EDITED, $request->user(), [
+                'remarks' => "Deleted attachment: {$filename}",
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Attachment deleted successfully.',
+            'document' => $document ? $document->load('attachments') : null,
+        ]);
     }
 }

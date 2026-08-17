@@ -142,7 +142,7 @@ class Document extends Model
                     $q->orWhere('office_assignment', $officeName)
                       ->orWhere('send_to_all', true)
                       ->orWhereHas('histories', function ($q3) use ($officeName) {
-                          $q3->where('action', 'shared')
+                          $q3->where('action', 'SHARED')
                              ->where('to_office', $officeName);
                       });
                 } else {

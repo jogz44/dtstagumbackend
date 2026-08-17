@@ -49,7 +49,11 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        return response()->json($request->user());
+        $user = $request->user()->load(['roles', 'office', 'division']);
+        $role = $user->roles->first();
+        $user->setAttribute('role_name', $role?->name);
+        $user->setAttribute('role', $role);
+        return response()->json($user);
     });
 
     Route::post('/logout', function (Request $request) {
@@ -111,6 +115,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/{document}/complete', [DocumentController::class, 'complete']);
         Route::post('/documents/{document}/return', [DocumentController::class, 'returnDocument']);
         Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve']);
+        Route::get('/document-types', [DocumentController::class, 'getDocumentTypes']);
+        Route::post('/documents/{document}/attachments', [DocumentController::class, 'addAttachment']);
+        Route::delete('/attachments/{attachment}', [DocumentController::class, 'deleteAttachment']);
         Route::get('/documents/{document}/messages', [DocumentController::class, 'getMessages']);
         Route::post('/documents/{document}/messages', [DocumentController::class, 'sendMessage']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
