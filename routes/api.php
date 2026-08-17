@@ -110,6 +110,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/{document}/share', [DocumentController::class, 'share']);
         Route::post('/documents/{document}/complete', [DocumentController::class, 'complete']);
         Route::post('/documents/{document}/return', [DocumentController::class, 'returnDocument']);
+        Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve']);
+        Route::get('/documents/{document}/messages', [DocumentController::class, 'getMessages']);
+        Route::post('/documents/{document}/messages', [DocumentController::class, 'sendMessage']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
