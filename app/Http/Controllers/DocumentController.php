@@ -117,6 +117,10 @@ class DocumentController extends Controller
         $document = DB::transaction(function () use ($request, $validated) {
             $user = $request->user();
 
+            if ($validated['send_to_all'] ?? false) {
+                $validated['is_internal'] = true;
+            }
+
             if ($validated['is_internal'] ?? false) {
                 $validated['origin_sender'] = $user->office?->name ?? $user->full_name;
             }
@@ -150,8 +154,19 @@ class DocumentController extends Controller
             }
 
             // 1. Log in canonical document transaction history.
-            $historyType = $document->is_internal ? DocumentHistory::REGISTERED : DocumentHistory::RECEIVED;
-            $historyRemarks = $document->is_internal ? 'Document created.' : 'Document received.';
+            $source = $request->input('source');
+            if ($source === 'receive') {
+                $historyType = DocumentHistory::RECEIVED;
+                $historyRemarks = 'Document received.';
+            } elseif ($source === 'create') {
+                $historyType = DocumentHistory::REGISTERED;
+                $historyRemarks = 'Document created.';
+            } else {
+                $historyType = ($document->is_internal || $document->self_assign || !$request->has('is_internal'))
+                    ? DocumentHistory::REGISTERED
+                    : DocumentHistory::RECEIVED;
+                $historyRemarks = $historyType === DocumentHistory::REGISTERED ? 'Document created.' : 'Document received.';
+            }
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'remarks' => $historyRemarks,
@@ -160,14 +175,18 @@ class DocumentController extends Controller
                 'status_after' => $document->status,
             ]);
 
-            // 2. Add message/remarks if present
-            if (!empty($document->remarks)) {
-                $document->messages()->create([
-                    'user_id' => $request->user()->id,
-                    'message' => $document->remarks,
-                    'type' => 'remark',
+            // If sent to all and internal:
+            if ($document->send_to_all && $document->is_internal) {
+                DocumentHistory::record($document, 'shared', $request->user(), [
+                    'remarks' => 'Shared and sent to all employees in ' . ($user->office?->name ?? 'the office') . '.',
+                    'from_office' => $user->office?->name,
+                    'to_office' => $user->office?->name,
+                    'status_before' => $document->status,
+                    'status_after' => $document->status,
                 ]);
             }
+
+            // 2. Add message/remarks if present - REMOVED: remarks are remarks, not messages.
 
             // 3. Create pending acknowledgement if a user is assigned
             if (!empty($document->assigned_user) && $document->assigned_user !== '-Select user-' && $document->assigned_user !== '-Select office first-') {
@@ -380,6 +399,17 @@ class DocumentController extends Controller
             'assigned_user' => $validated['assigned_user'] ?? null,
             'status' => 'outgoing', // Set to outgoing for the sender
         ]);
+
+        if (!empty($document->assigned_user) && $document->assigned_user !== '-Select user-' && $document->assigned_user !== '-Select office first-') {
+            $assignedName = $document->assigned_user;
+            $localUser = $this->resolveAssignedUser($assignedName);
+
+            $document->acknowledgements()->create([
+                'user_id' => $localUser?->id,
+                'assigned_name' => $assignedName,
+                'remarks' => 'Pending acknowledgement.',
+            ]);
+        }
 
         DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
             'remarks' => $validated['remarks'] ?? 'Document transferred.',
@@ -665,6 +695,54 @@ public function complete(Request $request, Document $document): JsonResponse
         return response()->json([
             'message' => 'Attachment deleted successfully.',
             'document' => $document ? $document->load('attachments') : null,
+        ]);
+    }
+
+    public function unopenedCount(Request $request): JsonResponse
+    {
+        $user = $request->user();
+
+        $count = \App\Models\DocumentAcknowledgement::query()
+            ->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhere('assigned_name', $user->full_name);
+            })
+            ->whereNull('acknowledged_at')
+            ->count();
+
+        return response()->json([
+            'count' => $count
+        ]);
+    }
+
+    public function acknowledge(Request $request, Document $document): JsonResponse
+    {
+        $user = $request->user();
+
+        $acknowledgement = $document->acknowledgements()
+            ->where(function ($q) use ($user) {
+                $q->where('user_id', $user->id)
+                  ->orWhere('assigned_name', $user->full_name);
+            })
+            ->whereNull('acknowledged_at')
+            ->first();
+
+        if ($acknowledgement) {
+            $acknowledgement->update([
+                'acknowledged_at' => now(),
+                'remarks' => 'Acknowledged/Opened by recipient.'
+            ]);
+
+            DocumentHistory::record($document, 'RECEIVED', $user, [
+                'remarks' => 'Document acknowledged/opened.',
+                'status_before' => $document->status,
+                'status_after' => $document->status,
+            ]);
+        }
+
+        return response()->json([
+            'message' => 'Document acknowledged successfully.',
+            'document' => $document->fresh()
         ]);
     }
 }

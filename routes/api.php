@@ -104,6 +104,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [\App\Http\Controllers\ReportController::class, 'index']);
         Route::get('/documents', [DocumentController::class, 'index']);
+        Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
+        Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
