@@ -20,7 +20,12 @@ class DocumentController extends Controller
     public function index(Request $request): JsonResponse
     {
         $tab = $request->query('tab', 'my');
-        $query = Document::query()->with(['creator', 'attachments']);
+        $query = Document::query()->with([
+            'creator',
+            'attachments',
+            'acknowledgements' => fn ($query) => $query->latest(),
+            'acknowledgements.user:id,first_name,last_name,username,is_active',
+        ]);
 
         $user = $request->user();
 
@@ -438,34 +443,51 @@ class DocumentController extends Controller
         ]);
     }
     public function returnDocument(Request $request, Document $document): JsonResponse
-{
-    $validated = $request->validate([
-        'remarks' => 'nullable|string',
-    ]);
+    {
+        $validated = $request->validate([
+            'remarks' => 'nullable|string',
+        ]);
 
-    $statusBefore = $document->status;
-    $fromOffice = $document->office_assignment;
-    $toOffice = $document->origin_sender;
+        $statusBefore = $document->status;
+        $fromOffice = $document->office_assignment;
 
-    $document->update([
-        'status' => 'returned',
-        'office_assignment' => $document->origin_sender,
-        'assigned_user' => null,
-    ]);
+        // Find the last user who assigned, transferred, or created this document before the current user
+        $lastHistory = DocumentHistory::where('document_id', $document->id)
+            ->whereIn('action', ['assigned', 'transfer', 'transferred', 'released', 'registered'])
+            ->where('user_id', '!=', $request->user()->id)
+            ->latest()
+            ->first();
 
-    DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
-        'remarks' => $validated['remarks'] ?? 'Document returned to sender.',
-        'from_office' => $fromOffice,
-        'to_office' => $toOffice,
-        'status_before' => $statusBefore,
-        'status_after' => 'returned',
-    ]);
+        $lastUser = null;
+        if ($lastHistory) {
+            $lastUser = User::find($lastHistory->user_id);
+        }
+        if (! $lastUser) {
+            $lastUser = $document->creator;
+        }
 
-    return response()->json([
-        'message' => 'Document returned successfully.',
-        'document' => $document->fresh(),
-    ]);
-}
+        $toOffice = $lastUser?->office?->name ?? $document->origin_sender;
+
+        $document->update([
+            'status' => 'returned',
+            'office_assignment' => $toOffice,
+            'division_assignment' => $lastUser?->division?->name,
+            'assigned_user' => $lastUser ? $lastUser->full_name : null,
+        ]);
+
+        DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
+            'remarks' => $validated['remarks'] ?? 'Document returned to sender.',
+            'from_office' => $fromOffice,
+            'to_office' => $toOffice,
+            'status_before' => $statusBefore,
+            'status_after' => 'returned',
+        ]);
+
+        return response()->json([
+            'message' => 'Document returned successfully.',
+            'document' => $document->fresh(),
+        ]);
+    }
 public function complete(Request $request, Document $document): JsonResponse
 {
     $validated = $request->validate([
@@ -521,7 +543,57 @@ public function complete(Request $request, Document $document): JsonResponse
 
         return Storage::disk($disk)->response($attachment->path, $attachment->original_name, [
             'Content-Type' => $attachment->mime_type,
-            'Content-Disposition' => 'inline; filename="' . $attachment->original_name . '"'
+        ], 'inline');
+    }
+
+    public function retrieve(Request $request, Document $document): JsonResponse
+    {
+        $statusBefore = $document->status;
+
+        $document->update([
+            'status' => 'registered',
         ]);
+
+        DocumentHistory::record($document, 'RETRIEVED', $request->user(), [
+            'remarks' => 'Document retrieved from completed.',
+            'status_before' => $statusBefore,
+            'status_after' => 'registered',
+        ]);
+
+        return response()->json([
+            'message' => 'Document retrieved successfully.',
+            'document' => $document->fresh(),
+        ]);
+    }
+
+    public function getMessages(Document $document): JsonResponse
+    {
+        $messages = $document->messages()
+            ->with('user:id,first_name,last_name,username,position')
+            ->oldest()
+            ->get();
+
+        return response()->json([
+            'data' => $messages
+        ]);
+    }
+
+    public function sendMessage(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'message' => 'required|string',
+            'type' => 'nullable|string',
+        ]);
+
+        $message = $document->messages()->create([
+            'user_id' => $request->user()->id,
+            'message' => $validated['message'],
+            'type' => $validated['type'] ?? 'comment',
+        ]);
+
+        return response()->json([
+            'message' => 'Message sent successfully.',
+            'data' => $message->load('user:id,first_name,last_name,username,position')
+        ], 201);
     }
 }
