@@ -114,6 +114,7 @@ class UserSecurityController extends Controller
             ], 422);
         }
 
+        /** @var \Laravel\Sanctum\PersonalAccessToken|null $token */
         $token = $user->tokens()->whereKey($tokenId)->first();
 
         if (! $token) {
