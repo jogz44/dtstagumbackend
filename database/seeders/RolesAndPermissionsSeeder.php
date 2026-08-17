@@ -11,7 +11,7 @@ class RolesAndPermissionsSeeder extends Seeder
     public function run(): void
     {
         $roles = [
-            ['name' => 'admin', 'guard_name' => 'web', 'display_name' => 'Admin', 'description' => 'Full system access', 'is_system' => true],
+            ['name' => 'admin', 'guard_name' => 'web', 'display_name' => 'Administrator', 'description' => 'Full system access', 'is_system' => true],
             ['name' => 'supervisor', 'guard_name' => 'web', 'display_name' => 'Supervisor', 'description' => 'Can transfer documents', 'is_system' => true],
             ['name' => 'receiver', 'guard_name' => 'web', 'display_name' => 'Receiver', 'description' => 'Can receive documents', 'is_system' => true],
         ];

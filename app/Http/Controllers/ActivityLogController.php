@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\ActivityEvent;
+use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -11,7 +12,7 @@ class ActivityLogController extends Controller
     public function index(Request $request): JsonResponse
     {
         $authUser = $request->user();
-        if (! $authUser->hasRole(\App\Support\RoleNames::ADMIN) && ! $authUser->hasRole('admin') && ! $authUser->can('activity_logs.view')) {
+        if ($authUser->username !== 'admin' && ! $authUser->hasAnyRole(RoleNames::adminRoles()) && ! $authUser->can('activity_logs.view')) {
             abort(403, 'You are not authorized to view activity logs.');
         }
 

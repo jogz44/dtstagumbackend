@@ -82,7 +82,7 @@ class DocumentController extends Controller
             ->orderBy('id')
             ->get();
 
-        $viewerCanSeeConfidential = $viewer->can('documents.view_confidential');
+        $viewerCanSeeConfidential = $viewer->can('documents.view_confidential') || $viewer->can('can_view_confidential');
         $canShowSensitiveFields = ! $document->is_confidential || $viewerCanSeeConfidential;
 
         return response()->json([

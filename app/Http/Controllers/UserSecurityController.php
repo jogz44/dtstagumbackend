@@ -188,7 +188,7 @@ class UserSecurityController extends Controller
 
     private function authorizeSecurityRead(User $authUser, User $targetUser): void
     {
-        if ($authUser->hasRole(RoleNames::ADMIN) || $authUser->id === $targetUser->id) {
+        if ($authUser->username === 'admin' || $authUser->hasAnyRole(RoleNames::adminRoles()) || $authUser->id === $targetUser->id) {
             return;
         }
 
@@ -205,7 +205,7 @@ class UserSecurityController extends Controller
 
     private function authorizeSecurityAction(User $authUser, ?User $targetUser = null): void
     {
-        if ($authUser->hasRole(RoleNames::ADMIN)) {
+        if ($authUser->username === 'admin' || $authUser->hasAnyRole(RoleNames::adminRoles())) {
             return;
         }
 

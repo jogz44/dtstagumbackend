@@ -205,14 +205,14 @@ class UserController extends Controller
 
     private function isProtectedAccount(User $user): bool
     {
-        return $user->hasRole('admin') || $user->hasRole('super_admin') || $user->hasRole(RoleNames::ADMIN);
+        return $user->hasAnyRole(RoleNames::adminRoles());
     }
 
     public function destroy(Request $request, User $user, AuditService $audit): JsonResponse
     {
         $authUser = $request->user();
 
-        if (! $authUser->hasRole(RoleNames::ADMIN) && ! $authUser->hasPermissionTo('users.manage')) {
+        if ($authUser->username !== 'admin' && ! $authUser->hasAnyRole(RoleNames::adminRoles()) && ! $authUser->hasPermissionTo('users.manage')) {
             abort(403, 'You are not authorized to delete user accounts.');
         }
 
@@ -247,17 +247,8 @@ class UserController extends Controller
                 || DB::table('document_messages')->where('user_id', $user->id)->exists()
                 || DB::table('document_acknowledgements')->where('user_id', $user->id)->exists();
 
-            if ($hasHistory) {
-                // Fallback to soft delete + deactivate if database has tracking history
-                $user->forceFill(['is_active' => false])->save();
-                $user->delete();
-            } else {
-                // Delete overrides and detach roles to prevent Spatie relation constraints
-                $user->permissionOverrides()->delete();
-                $user->roles()->detach();
-
-                $user->forceDelete(); // Attempt permanent hard delete
-            }
+            $user->forceFill(['is_active' => false])->save();
+            $user->delete();
         });
 
         return response()->json(['message' => 'User account deleted successfully.']);
