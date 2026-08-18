@@ -31,6 +31,7 @@ class StoreDocumentRequest extends FormRequest
             'notes'        => ['nullable', 'string'],
             'attachments'  => ['nullable', 'array'],
             'attachments.*' => ['file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            'due_date'     => ['nullable', 'date'],
         ];
     }
 }
