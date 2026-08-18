@@ -21,6 +21,28 @@ use Spatie\Permission\Traits\HasRoles;
  * - SoftDeletes / deleted_at
  *
  * Never call forceDelete() for User records.
+ *
+ * @property string $id
+ * @property string $username
+ * @property string|null $password
+ * @property bool $must_change_password
+ * @property string|null $first_name
+ * @property string|null $last_name
+ * @property string $full_name
+ * @property string|null $office_id
+ * @property string|null $division_id
+ * @property string|null $employee_id
+ * @property string|null $pmis_employee_id
+ * @property \Illuminate\Support\Carbon|null $birthdate
+ * @property string|null $position
+ * @property string|null $employment_status
+ * @property string|null $avatar_url
+ * @property bool $is_active
+ * @property string|null $email
+ * @property \Illuminate\Support\Carbon|null $last_login_at
+ * @property \Illuminate\Support\Carbon|null $created_at
+ * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property \Illuminate\Support\Carbon|null $deleted_at
  */
 class User extends Authenticatable
 {
