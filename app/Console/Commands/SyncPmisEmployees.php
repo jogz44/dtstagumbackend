@@ -17,11 +17,12 @@ class SyncPmisEmployees extends Command
         {--dry-run : Preview local employee changes without writing to MySQL}
         {--commit : Apply local MySQL creates and updates}';
 
-    protected $description = 'Synchronize PMIS employees from dbo.vwActive into local MySQL with dry-run safety';
+    protected $description = 'Synchronize PMIS employees from dbo.xPersonal into local MySQL with dry-run safety';
 
     private const REQUIRED_LOCAL_COLUMNS = [
         'id',
         'pmis_no',
+        'pmid',
         'first_name',
         'middle_name',
         'last_name',
@@ -38,6 +39,7 @@ class SyncPmisEmployees extends Command
     ];
 
     private const COMPARED_FIELDS = [
+        'pmid',
         'first_name',
         'middle_name',
         'last_name',
@@ -63,7 +65,7 @@ class SyncPmisEmployees extends Command
         $this->info('====================================================');
         $this->info($commit ? ' PMIS Employee Sync Commit' : ' PMIS Employee Sync Dry Run');
         $this->info('====================================================');
-        $this->line('PMIS source: dbo.vwActive');
+        $this->line('PMIS source: dbo.xPersonal');
         $this->line('PMIS mode: read-only SELECT via DB::connection(\'pmis\')');
         $this->line('Local mode: ' . ($commit ? 'commit local MySQL creates/updates only' : 'dry-run only, no MySQL writes'));
         $this->line('Query: ' . $pmisEmployees->syncQueryDescription());
@@ -189,12 +191,21 @@ class SyncPmisEmployees extends Command
 
                 DB::connection('mysql')->transaction(function () use ($plannedCreates, $plannedUpdates) {
                     $syncedAt = now();
+                    $now = now();
 
-                    foreach ($plannedCreates as $attributes) {
-                        PmisEmployee::query()->create([
-                            ...$attributes,
-                            'pmis_synced_at' => $syncedAt,
-                        ]);
+                    $createChunks = array_chunk($plannedCreates, 500);
+                    foreach ($createChunks as $chunk) {
+                        $records = array_map(function ($attributes) use ($syncedAt, $now) {
+                            return [
+                                'id' => (string) \Illuminate\Support\Str::uuid(),
+                                ...$attributes,
+                                'pmis_synced_at' => $syncedAt,
+                                'created_at' => $now,
+                                'updated_at' => $now,
+                            ];
+                        }, $chunk);
+
+                        PmisEmployee::query()->insert($records);
                     }
 
                     foreach ($plannedUpdates as [$localEmployee, $attributes]) {

@@ -20,6 +20,7 @@ class PmisEmployee extends Model
 
     protected $fillable = [
         'pmis_no',
+        'pmid',
         'first_name',
         'middle_name',
         'last_name',

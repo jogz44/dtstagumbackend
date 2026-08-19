@@ -38,13 +38,18 @@ class PmisEmployeeController extends Controller
 
         if (isset($validated['search']) && filled($validated['search'])) {
             $search = trim($validated['search']);
-            $query->where(function ($q) use ($search) {
+            $isSqlite = DB::connection()->getDriverName() === 'sqlite';
+            $concatTwo = $isSqlite ? "(first_name || ' ' || last_name)" : "CONCAT(first_name, ' ', last_name)";
+            $concatThree = $isSqlite ? "(first_name || ' ' || coalesce(middle_name, '') || ' ' || last_name)" : "CONCAT(first_name, ' ', middle_name, ' ', last_name)";
+
+            $query->where(function ($q) use ($search, $concatTwo, $concatThree) {
                 $q->where('pmis_no', 'LIKE', "%{$search}%")
+                    ->orWhere('pmid', 'LIKE', "%{$search}%")
                     ->orWhere('first_name', 'LIKE', "%{$search}%")
                     ->orWhere('middle_name', 'LIKE', "%{$search}%")
                     ->orWhere('last_name', 'LIKE', "%{$search}%")
-                    ->orWhere(DB::raw("CONCAT(first_name, ' ', last_name)"), 'LIKE', "%{$search}%")
-                    ->orWhere(DB::raw("CONCAT(first_name, ' ', middle_name, ' ', last_name)"), 'LIKE', "%{$search}%")
+                    ->orWhere(DB::raw($concatTwo), 'LIKE', "%{$search}%")
+                    ->orWhere(DB::raw($concatThree), 'LIKE', "%{$search}%")
                     ->orWhere('designation', 'LIKE', "%{$search}%")
                     ->orWhere('office', 'LIKE', "%{$search}%")
                     ->orWhere('division', 'LIKE', "%{$search}%");
@@ -81,6 +86,7 @@ class PmisEmployeeController extends Controller
             $payload = [
                 'id' => $employee->id,
                 'pmis_no' => $employee->pmis_no,
+                'pmid' => $employee->pmid,
                 'first_name' => $employee->first_name,
                 'middle_name' => $employee->middle_name,
                 'last_name' => $employee->last_name,
