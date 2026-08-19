@@ -14,7 +14,7 @@ class OrganizationController extends Controller
     public function index(): JsonResponse
     {
         // Only attempt to synchronize with pmis if explicitly requested or if no offices exist locally
-        if (request()->has('sync') || Office::where('is_active', true)->count() === 0) {
+        if ((request()->has('sync') || Office::where('is_active', true)->count() === 0) && $this->checkPmisOnline()) {
             try {
                 // Fetch only divisions and office columns from the pmis2003.vwActive view
                 $pmisRecords = DB::connection('pmis')
@@ -87,18 +87,20 @@ class OrganizationController extends Controller
 
         $users = [];
 
-        try {
-            $pmisUsers = DB::connection('pmis')
-                ->table('vwActive')
-                ->where('office', $officeName)
-                ->select('Name1')
-                ->distinct()
-                ->orderBy('Name1')
-                ->get();
+        if ($this->checkPmisOnline()) {
+            try {
+                $pmisUsers = DB::connection('pmis')
+                    ->table('vwActive')
+                    ->where('office', $officeName)
+                    ->select('Name1')
+                    ->distinct()
+                    ->orderBy('Name1')
+                    ->get();
 
-            $users = $pmisUsers->pluck('Name1')->filter()->values()->all();
-        } catch (\Exception $e) {
-            Log::warning("Could not query office users from pmis2003.vwActive: " . $e->getMessage());
+                $users = $pmisUsers->pluck('Name1')->filter()->values()->all();
+            } catch (\Exception $e) {
+                Log::warning("Could not query office users from pmis2003.vwActive: " . $e->getMessage());
+            }
         }
 
         // If pmis query failed or returned empty, fallback to local users of the office
@@ -128,5 +130,27 @@ class OrganizationController extends Controller
         }
 
         return response()->json($users);
+    }
+
+    private function checkPmisOnline(): bool
+    {
+        $host = config('database.connections.pmis.host');
+        $port = config('database.connections.pmis.port', 1433);
+
+        if (!$host || $host === '127.0.0.1') {
+            return false;
+        }
+
+        try {
+            $connection = @fsockopen($host, $port, $errno, $errstr, 0.5); // 500ms timeout
+            if ($connection) {
+                fclose($connection);
+                return true;
+            }
+        } catch (\Throwable $e) {
+            // Ignore
+        }
+
+        return false;
     }
 }
