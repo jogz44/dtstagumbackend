@@ -56,7 +56,7 @@ class DocumentController extends Controller
         $documents = $query->latest()->get()->map(function ($doc) {
             $assigned = $doc->assigned_user;
             if (!empty($assigned) && Str::isUuid($assigned)) {
-                $user = \App\Models\User::find($assigned);
+                $user = User::find($assigned);
                 $doc->assigned_user = $user ? $user->full_name : $assigned;
             }
             return $doc;
@@ -157,8 +157,8 @@ class DocumentController extends Controller
             }
 
             // 1. Log in canonical document transaction history.
-            $historyType = DocumentHistory::RECEIVED;
-            $historyRemarks = 'Document received.';
+            $historyType = DocumentHistory::REGISTERED;
+            $historyRemarks = 'Document registered.';
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'remarks' => $historyRemarks,
@@ -587,11 +587,13 @@ class DocumentController extends Controller
     public function showAttachment(Request $request, \App\Models\DocumentAttachment $attachment)
     {
         $disk = $attachment->disk ?? 'shared_documents';
-        if (!Storage::disk($disk)->exists($attachment->path)) {
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = Storage::disk($disk);
+        if (!$storage->exists($attachment->path)) {
             abort(404, 'File not found');
         }
 
-        return Storage::disk($disk)->response($attachment->path, $attachment->original_name, [
+        return $storage->response($attachment->path, $attachment->original_name, [
             'Content-Type' => $attachment->mime_type,
         ], 'inline');
     }
@@ -734,6 +736,7 @@ class DocumentController extends Controller
     {
         $user = $request->user();
 
+        /** @var \App\Models\DocumentAcknowledgement|null $acknowledgement */
         $acknowledgement = $document->acknowledgements()
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
