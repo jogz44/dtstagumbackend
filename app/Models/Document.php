@@ -57,6 +57,67 @@ class Document extends Model
         ];
     }
 
+    protected static ?bool $hasDueDateColumn = null;
+
+    public static function checkDueDateColumn()
+    {
+        if (self::$hasDueDateColumn === null) {
+            self::$hasDueDateColumn = \Illuminate\Support\Facades\Schema::hasColumn('documents', 'due_date');
+        }
+        return self::$hasDueDateColumn;
+    }
+
+    protected static function booted()
+    {
+        static::saving(function ($document) {
+            if (!static::checkDueDateColumn()) {
+                if (isset($document->attributes['due_date'])) {
+                    $dueDate = $document->attributes['due_date'];
+                    unset($document->attributes['due_date']);
+                    
+                    $notes = $document->attributes['notes'] ?? '';
+                    $notes = preg_replace('/^\[DUE_DATE:[^\]]*\]\r?\n?/', '', $notes);
+                    
+                    if ($dueDate) {
+                        $dateStr = ($dueDate instanceof \DateTimeInterface) ? $dueDate->format('Y-m-d') : $dueDate;
+                        $document->attributes['notes'] = "[DUE_DATE:{$dateStr}]\n" . $notes;
+                    } else {
+                        $document->attributes['notes'] = $notes;
+                    }
+                }
+            }
+        });
+    }
+
+    public function getDueDateAttribute($value)
+    {
+        if (!static::checkDueDateColumn()) {
+            $notes = $this->attributes['notes'] ?? '';
+            if (preg_match('/^\[DUE_DATE:([^\]]*)\]/', $notes, $matches)) {
+                return \Illuminate\Support\Carbon::parse($matches[1]);
+            }
+            return null;
+        }
+        return $value ? \Illuminate\Support\Carbon::parse($value) : null;
+    }
+
+    public function getNotesAttribute($value)
+    {
+        if (!static::checkDueDateColumn() && $value) {
+            return preg_replace('/^\[DUE_DATE:[^\]]*\]\r?\n?/', '', $value);
+        }
+        return $value;
+    }
+
+    public function toArray()
+    {
+        $array = parent::toArray();
+        if (!static::checkDueDateColumn()) {
+            $array['due_date'] = $this->due_date?->format('Y-m-d');
+        }
+        return $array;
+    }
+
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by')->withTrashed();
