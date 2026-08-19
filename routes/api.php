@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
@@ -97,9 +98,10 @@ Route::middleware('auth:sanctum')->group(function () {
             'message' => 'Password updated successfully.',
             'must_change_password' => false,
         ]);
-    });
+    }); 
 
     Route::middleware('password.changed')->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'dashboard']);
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [\App\Http\Controllers\ReportController::class, 'index']);

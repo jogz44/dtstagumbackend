@@ -19,6 +19,7 @@ class StoreDocumentRequest extends FormRequest
             'document_type' => ['required', 'string', 'max:100'],
             'priority_level' => ['required', 'string', 'max:100'],
             'description' => ['required', 'string', 'max:30'],
+            'due_date' => ['nullable', 'date'],
             'remarks' => ['nullable', 'string'],
             'is_confidential' => ['sometimes', 'boolean'],
             'self_assign' => ['sometimes', 'boolean'],

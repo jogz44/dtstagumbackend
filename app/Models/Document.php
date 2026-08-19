@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $assigned_user
  * @property bool $is_read_only
  * @property string|null $status
+ * @property \Illuminate\Support\Carbon|null $due_date
  * @property string|null $notes
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
@@ -42,7 +43,7 @@ class Document extends Model
         'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'document_type',
         'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
-        'assigned_user', 'is_read_only', 'status', 'notes',
+        'assigned_user', 'is_read_only', 'status', 'due_date', 'notes',
     ];
 
     protected function casts(): array
@@ -53,6 +54,7 @@ class Document extends Model
             'send_to_all' => 'boolean',
             'is_internal' => 'boolean',
             'is_read_only' => 'boolean',
+            'due_date' => 'date:Y-m-d',
         ];
     }
 
