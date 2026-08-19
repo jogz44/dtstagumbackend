@@ -81,9 +81,12 @@ class DocumentController extends Controller
         $events = DocumentHistory::query()
             ->where('document_id', $document->id)
             ->with([
-                'user:id,first_name,last_name,username,is_active',
-                'fromUser:id,first_name,last_name,username,is_active',
-                'toUser:id,first_name,last_name,username,is_active',
+                'user:id,first_name,last_name,username,is_active,office_id',
+                'user.office:id,name,short_name',
+                'fromUser:id,first_name,last_name,username,is_active,office_id',
+                'fromUser.office:id,name,short_name',
+                'toUser:id,first_name,last_name,username,is_active,office_id',
+                'toUser.office:id,name,short_name',
             ])
             ->oldest('created_at')
             ->orderBy('id')
@@ -290,9 +293,12 @@ class DocumentController extends Controller
             return null;
         }
 
+        $officeName = $user?->relationLoaded('office') && $user->office ? ($user->office->name ?? $user->office->short_name) : null;
+
         return [
             'id' => $user?->id,
             'name' => $name,
+            'office' => $officeName,
             'is_active' => $user?->is_active,
         ];
     }
@@ -362,8 +368,13 @@ class DocumentController extends Controller
 
         $document->update($validated);
 
+        $historyRemarks = 'Document details were updated.';
+        if (!empty($validated['remarks'])) {
+            $historyRemarks = $validated['remarks'];
+        }
+
         DocumentHistory::record($document, 'edited', $request->user(), [
-            'remarks' => 'Document details were updated.',
+            'remarks' => $historyRemarks,
         ]);
 
         return response()->json([
@@ -524,29 +535,32 @@ class DocumentController extends Controller
             'document' => $document->fresh(),
         ]);
     }
-public function complete(Request $request, Document $document): JsonResponse
-{
-    $validated = $request->validate([
-        'remarks' => 'nullable|string',
-    ]);
 
-    $statusBefore = $document->status;
+    public function complete(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'remarks' => 'nullable|string',
+        ]);
 
-    $document->update([
-        'status' => 'completed',
-    ]);
+        $statusBefore = $document->status;
 
-    DocumentHistory::record($document, DocumentHistory::COMPLETED, $request->user(), [
-        'remarks' => $validated['remarks'] ?? 'Document marked as complete.',
-        'status_before' => $statusBefore,
-        'status_after' => 'completed',
-    ]);
+        $document->update([
+            'status' => 'completed',
+            'remarks' => $validated['remarks'] ?? null,
+        ]);
 
-    return response()->json([
-        'message' => 'Document marked as complete.',
-        'document' => $document->fresh(),
-    ]);
-}
+        DocumentHistory::record($document, DocumentHistory::COMPLETED, $request->user(), [
+            'remarks' => $validated['remarks'] ?? 'Document marked as complete.',
+            'status_before' => $statusBefore,
+            'status_after' => 'completed',
+        ]);
+
+        return response()->json([
+            'message' => 'Document marked as complete.',
+            'document' => $document->fresh(),
+        ]);
+    }
+
     public function share(Request $request, Document $document): JsonResponse
     {
         $validated = $request->validate([
@@ -605,7 +619,7 @@ public function complete(Request $request, Document $document): JsonResponse
     public function getMessages(Document $document): JsonResponse
     {
         $messages = $document->messages()
-            ->with('user:id,first_name,last_name,username,position')
+            ->with(['user:id,first_name,last_name,username,position,office_id', 'user.office'])
             ->oldest()
             ->get();
 
@@ -629,7 +643,7 @@ public function complete(Request $request, Document $document): JsonResponse
 
         return response()->json([
             'message' => 'Message sent successfully.',
-            'data' => $message->load('user:id,first_name,last_name,username,position')
+            'data' => $message->load(['user:id,first_name,last_name,username,position,office_id', 'user.office'])
         ], 201);
     }
 
@@ -734,8 +748,8 @@ public function complete(Request $request, Document $document): JsonResponse
                 'remarks' => 'Acknowledged/Opened by recipient.'
             ]);
 
-            DocumentHistory::record($document, 'RECEIVED', $user, [
-                'remarks' => 'Document acknowledged/opened.',
+            DocumentHistory::record($document, 'ACKNOWLEDGED', $user, [
+                'remarks' => 'Document opened and acknowledged by recipient.',
                 'status_before' => $document->status,
                 'status_after' => $document->status,
             ]);
