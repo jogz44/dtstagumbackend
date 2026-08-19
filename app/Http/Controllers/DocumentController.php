@@ -154,19 +154,8 @@ class DocumentController extends Controller
             }
 
             // 1. Log in canonical document transaction history.
-            $source = $request->input('source');
-            if ($source === 'receive') {
-                $historyType = DocumentHistory::RECEIVED;
-                $historyRemarks = 'Document received.';
-            } elseif ($source === 'create') {
-                $historyType = DocumentHistory::REGISTERED;
-                $historyRemarks = 'Document created.';
-            } else {
-                $historyType = ($document->is_internal || $document->self_assign || !$request->has('is_internal'))
-                    ? DocumentHistory::REGISTERED
-                    : DocumentHistory::RECEIVED;
-                $historyRemarks = $historyType === DocumentHistory::REGISTERED ? 'Document created.' : 'Document received.';
-            }
+            $historyType = DocumentHistory::RECEIVED;
+            $historyRemarks = 'Document received.';
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'remarks' => $historyRemarks,
@@ -196,6 +185,7 @@ class DocumentController extends Controller
                 $document->acknowledgements()->create([
                     'user_id' => $localUser?->id,
                     'assigned_name' => $assignedName,
+                    'from_office' => $document->origin_sender ?? $user->office?->name,
                     'remarks' => 'Pending acknowledgement.',
                 ]);
 
@@ -367,6 +357,7 @@ class DocumentController extends Controller
             'description' => 'nullable|string|max:30',
             'is_confidential' => 'nullable|boolean',
             'remarks' => 'nullable|string',
+            'due_date' => 'nullable|date',
         ]);
 
         $document->update($validated);
@@ -407,6 +398,7 @@ class DocumentController extends Controller
             $document->acknowledgements()->create([
                 'user_id' => $localUser?->id,
                 'assigned_name' => $assignedName,
+                'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement.',
             ]);
         }
@@ -509,6 +501,15 @@ class DocumentController extends Controller
             'division_assignment' => $lastUser?->division?->name,
             'assigned_user' => $lastUser ? $lastUser->full_name : null,
         ]);
+
+        if ($lastUser) {
+            $document->acknowledgements()->create([
+                'user_id' => $lastUser->id,
+                'assigned_name' => $lastUser->full_name,
+                'from_office' => $request->user()->office?->name,
+                'remarks' => 'Pending acknowledgement (Returned).',
+            ]);
+        }
 
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
             'remarks' => $validated['remarks'] ?? 'Document returned to sender.',
