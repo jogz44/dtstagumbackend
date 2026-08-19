@@ -49,11 +49,8 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        $user = $request->user()->load(['roles', 'office', 'division']);
-        $role = $user->roles->first();
-        $user->setAttribute('role_name', $role?->name);
-        $user->setAttribute('role', $role);
-        return response()->json($user);
+        $user = $request->user()->load(['roles', 'office', 'division', 'permissions']);
+        return new \App\Http\Resources\UserResource($user);
     });
 
     Route::post('/logout', function (Request $request) {
@@ -136,20 +133,36 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::patch('/users/{user}/deactivate', [UserController::class, 'deactivate'])->withTrashed();
         Route::apiResource('users', UserController::class, ['except' => ['destroy']]);
 
-        Route::put('/me', function (Request $request) {
+        Route::get('/me/history', [UserAuditController::class, 'meHistory']);
+        Route::get('/me/transaction-history', [UserAuditController::class, 'meTransactionHistory']);
+        Route::get('/me/activity', [UserAuditController::class, 'meActivity']);
+        Route::get('/me/security', [UserSecurityController::class, 'meShow']);
+        Route::delete('/me/sessions/{tokenId}', [UserSecurityController::class, 'meRevokeSession']);
+        Route::delete('/me/sessions', [UserSecurityController::class, 'meRevokeOtherSessions']);
+
+        Route::match(['put', 'patch'], '/me', function (Request $request) {
             $user = $request->user();
 
             $validated = $request->validate([
+                'first_name' => 'sometimes|nullable|string|max:255',
+                'middle_name' => 'sometimes|nullable|string|max:255',
+                'last_name' => 'sometimes|nullable|string|max:255',
+                'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $user->id,
+                'contact_number' => 'sometimes|nullable|string|max:50',
                 'fullname' => 'sometimes|nullable|string|max:255',
                 'office' => 'sometimes|nullable|string|max:255',
                 'division' => 'sometimes|nullable|string|max:255',
                 'position' => 'sometimes|nullable|string|max:255',
-                'email' => 'sometimes|nullable|email|max:255',
             ]);
 
             $user->update($validated);
 
-            return response()->json($user->fresh());
+            $user->load(['roles', 'office', 'division']);
+            $role = $user->roles->first();
+            $user->setAttribute('role_name', $role?->name);
+            $user->setAttribute('role', $role);
+
+            return response()->json($user);
         });
     });
 });

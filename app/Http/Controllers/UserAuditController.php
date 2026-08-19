@@ -14,6 +14,21 @@ use Illuminate\Validation\Rule;
 
 class UserAuditController extends Controller
 {
+    public function meHistory(Request $request, UserAuditAccess $access): JsonResponse
+    {
+        return $this->history($request, $request->user(), $access);
+    }
+
+    public function meActivity(Request $request, UserAuditAccess $access): JsonResponse
+    {
+        return $this->activity($request, $request->user(), $access);
+    }
+
+    public function meTransactionHistory(Request $request, UserAuditAccess $access): JsonResponse
+    {
+        return $this->transactionHistory($request, $request->user(), $access);
+    }
+
     public function history(Request $request, User $user, UserAuditAccess $access): JsonResponse
     {
         $access->authorize($request->user(), $user);
