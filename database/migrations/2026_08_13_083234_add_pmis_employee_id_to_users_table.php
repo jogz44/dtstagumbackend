@@ -12,11 +12,14 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            $table->foreignId('pmis_employee_id')
+            $table->uuid('pmis_employee_id')
                 ->nullable()
                 ->unique()
-                ->after('employee_id')
-                ->constrained('pmis_employees')
+                ->after('employee_id');
+
+            $table->foreign('pmis_employee_id')
+                ->references('id')
+                ->on('pmis_employees')
                 ->nullOnDelete();
         });
     }

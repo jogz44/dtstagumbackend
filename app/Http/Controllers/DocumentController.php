@@ -367,6 +367,7 @@ class DocumentController extends Controller
             'description' => 'nullable|string|max:30',
             'is_confidential' => 'nullable|boolean',
             'remarks' => 'nullable|string',
+            'due_date' => 'nullable|date',
         ]);
 
         $document->update($validated);
