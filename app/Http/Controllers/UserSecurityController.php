@@ -13,6 +13,21 @@ use Illuminate\Support\Facades\Hash;
 
 class UserSecurityController extends Controller
 {
+    public function meShow(Request $request): JsonResponse
+    {
+        return $this->show($request, $request->user());
+    }
+
+    public function meRevokeSession(Request $request, int $tokenId, AuditService $audit): JsonResponse
+    {
+        return $this->revokeSession($request, $request->user(), $tokenId, $audit);
+    }
+
+    public function meRevokeOtherSessions(Request $request, AuditService $audit): JsonResponse
+    {
+        return $this->revokeOtherSessions($request, $request->user(), $audit);
+    }
+
     public function show(Request $request, User $user): JsonResponse
     {
         $this->authorizeSecurityRead($request->user(), $user);
