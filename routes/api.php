@@ -8,6 +8,7 @@ use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
+use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
 use Illuminate\Http\Request;
@@ -36,7 +37,7 @@ Route::post('/login', function (Request $request) {
 
         return response()->json([
             'message' => 'Login successful',
-            'user' => new \App\Http\Resources\UserResource($user->load(['office', 'division', 'permissionOverrides', 'roles'])),
+            'user' => UserResource::make($user->load(['office', 'division', 'permissionOverrides', 'roles'])),
             'must_change_password' => $user->must_change_password,
             'token' => $token,
         ], 200);
@@ -51,7 +52,7 @@ Route::post('/login', function (Request $request) {
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
         $user = $request->user()->load(['roles', 'office', 'division', 'permissions']);
-        return new \App\Http\Resources\UserResource($user);
+        return UserResource::make($user);
     });
 
     Route::post('/logout', function (Request $request) {

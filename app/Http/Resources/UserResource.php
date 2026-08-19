@@ -7,6 +7,16 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class UserResource extends JsonResource
 {
+    /**
+     * Create a new resource instance.
+     *
+     * @param  mixed  $resource
+     */
+    public function __construct($resource)
+    {
+        parent::__construct($resource);
+    }
+
     public function toArray(Request $request): array
     {
         $role = $this->relationLoaded('roles') ? $this->roles->first() : null;
