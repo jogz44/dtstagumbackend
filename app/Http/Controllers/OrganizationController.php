@@ -14,56 +14,70 @@ class OrganizationController extends Controller
     public function index(): JsonResponse
     {
         // Only attempt to synchronize with pmis if explicitly requested or if no offices exist locally
-        if ((request()->has('sync') || Office::where('is_active', true)->count() === 0) && $this->checkPmisOnline()) {
-            try {
-                // Fetch only divisions and office columns from the pmis2003.vwActive view
-                $pmisRecords = DB::connection('pmis')
-                    ->table('vwActive')
-                    ->select('office', 'divisions')
-                    ->distinct()
-                    ->get();
+        if (request()->has('sync') || Office::where('is_active', true)->count() === 0) {
+            $pmisRecords = collect();
+            $synced = false;
 
-                // Synchronize the offices and divisions to the local lgudts database
-                foreach ($pmisRecords as $record) {
-                    $officeName = $record->office ? trim((string) $record->office) : null;
-                    $divisionName = $record->divisions ? trim((string) $record->divisions) : null;
+            if ($this->checkPmisOnline()) {
+                try {
+                    // Fetch only divisions and office columns from the pmis2003.vwActive view
+                    $pmisRecords = DB::connection('pmis')
+                        ->table('vwActive')
+                        ->select('office', 'divisions')
+                        ->distinct()
+                        ->get();
+                    $synced = true;
+                } catch (\Exception $e) {
+                    Log::warning("Could not synchronize offices/divisions from pmis2003.vwActive: " . $e->getMessage());
+                }
+            }
 
-                    // Synchronize the Office
-                    if ($officeName) {
-                        $officeCode = Str::upper(Str::limit(Str::slug($officeName), 40, '')) . '-' . substr(md5($officeName), 0, 5);
+            // Fallback mock seeding if PMIS was offline/failed and we have no offices locally
+            if (!$synced && Office::where('is_active', true)->count() === 0) {
+                $pmisRecords = collect([
+                    (object) ['office' => 'Office of the City Mayor', 'divisions' => 'Administrative Support'],
+                    (object) ['office' => 'Office of the City Mayor', 'divisions' => 'Legal Section'],
+                    (object) ['office' => 'City Information and Communications Technology Management Office', 'divisions' => 'Systems Development Division'],
+                    (object) ['office' => 'City Information and Communications Technology Management Office', 'divisions' => 'Network & Security Division'],
+                    (object) ['office' => 'Human Resource Management Office', 'divisions' => 'Recruitment & Placement'],
+                ]);
+            }
 
-                        $office = Office::withTrashed()->updateOrCreate(
-                            ['name' => $officeName],
+            // Synchronize the offices and divisions to the local lgudts database
+            foreach ($pmisRecords as $record) {
+                $officeName = $record->office ? trim((string) $record->office) : null;
+                $divisionName = $record->divisions ? trim((string) $record->divisions) : null;
+
+                if ($officeName) {
+                    $officeCode = Str::upper(Str::limit(Str::slug($officeName), 40, '')) . '-' . substr(md5($officeName), 0, 5);
+
+                    $office = Office::withTrashed()->updateOrCreate(
+                        ['name' => $officeName],
+                        [
+                            'code' => $officeCode,
+                            'short_name' => $officeName,
+                            'is_active' => true,
+                            'deleted_at' => null,
+                        ]
+                    );
+
+                    if ($divisionName) {
+                        $divisionCode = Str::upper(Str::limit(Str::slug($divisionName), 40, '')) . '-' . substr(md5($divisionName), 0, 5);
+
+                        Division::withTrashed()->updateOrCreate(
                             [
-                                'code' => $officeCode,
-                                'short_name' => $officeName,
+                                'office_id' => $office->id,
+                                'name' => $divisionName,
+                            ],
+                            [
+                                'code' => $divisionCode,
+                                'short_name' => $divisionName,
                                 'is_active' => true,
                                 'deleted_at' => null,
                             ]
                         );
-
-                        // Synchronize the Division under this Office (if present)
-                        if ($divisionName) {
-                            $divisionCode = Str::upper(Str::limit(Str::slug($divisionName), 40, '')) . '-' . substr(md5($divisionName), 0, 5);
-
-                            Division::withTrashed()->updateOrCreate(
-                                [
-                                    'office_id' => $office->id,
-                                    'name' => $divisionName,
-                                ],
-                                [
-                                    'code' => $divisionCode,
-                                    'short_name' => $divisionName,
-                                    'is_active' => true,
-                                    'deleted_at' => null,
-                                ]
-                            );
-                        }
                     }
                 }
-            } catch (\Exception $e) {
-                // Log warning but let the application continue using whatever is already local
-                Log::warning("Could not synchronize offices/divisions from pmis2003.vwActive: " . $e->getMessage());
             }
         }
 
