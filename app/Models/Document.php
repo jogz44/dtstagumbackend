@@ -252,13 +252,23 @@ class Document extends Model
                      ->whereHas('creator', function ($qC) use ($user) {
                          $qC->where('office_id', $user->office_id);
                      });
+            })
+            // Clause E: Self-assigned documents (user created & self-assigned to themselves)
+            ->orWhere(function ($qSelf) use ($user) {
+                $qSelf->where('self_assign', true)
+                      ->where('created_by', $user->id);
             });
-        })->where(function ($qInternalCheck) {
-            // Must not be internal unless it is send_to_all
+        })->where(function ($qInternalCheck) use ($user) {
+            // Must not be internal unless it is send_to_all, or it's a self-assigned doc
             $qInternalCheck->where('is_internal', false)
                            ->orWhere(function ($qIntSub) {
                                $qIntSub->where('is_internal', true)
                                        ->where('send_to_all', true);
+                           })
+                           ->orWhere(function ($qSelfInternal) use ($user) {
+                               // Self-assigned docs always pass regardless of is_internal
+                               $qSelfInternal->where('self_assign', true)
+                                             ->where('created_by', $user->id);
                            });
         })
           ->where('status', '!=', 'completed')
