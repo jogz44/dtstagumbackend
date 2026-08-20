@@ -1,12 +1,14 @@
 <?php
 
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
+use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
 use Illuminate\Http\Request;
@@ -35,7 +37,7 @@ Route::post('/login', function (Request $request) {
 
         return response()->json([
             'message' => 'Login successful',
-            'user' => new \App\Http\Resources\UserResource($user->load(['office', 'division', 'permissionOverrides', 'roles'])),
+            'user' => UserResource::make($user->load(['office', 'division', 'permissionOverrides', 'roles'])),
             'must_change_password' => $user->must_change_password,
             'token' => $token,
         ], 200);
@@ -49,11 +51,8 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        $user = $request->user()->load(['roles', 'office', 'division']);
-        $role = $user->roles->first();
-        $user->setAttribute('role_name', $role?->name);
-        $user->setAttribute('role', $role);
-        return response()->json($user);
+        $user = $request->user()->load(['roles', 'office', 'division', 'permissions']);
+        return UserResource::make($user);
     });
 
     Route::post('/logout', function (Request $request) {
@@ -65,7 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json(['message' => 'Logged out successfully.']);
     });
 
-    Route::post('/change-password', function (Request $request) {
+    $changePasswordHandler = function (Request $request) {
         $request->validate([
             'current_password' => 'required|string',
             'new_password' => 'required|string|min:6',
@@ -97,9 +96,13 @@ Route::middleware('auth:sanctum')->group(function () {
             'message' => 'Password updated successfully.',
             'must_change_password' => false,
         ]);
-    });
+    };
+
+    Route::post('/me/change-password', $changePasswordHandler);
+    Route::post('/change-password', $changePasswordHandler);
 
     Route::middleware('password.changed')->group(function () {
+        Route::get('/dashboard', [DashboardController::class, 'dashboard']);
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [\App\Http\Controllers\ReportController::class, 'index']);
@@ -130,26 +133,43 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
         Route::get('/users/{user}/security', [UserSecurityController::class, 'show'])->withTrashed();
+        Route::post('/users/{user}/reset-password', [UserSecurityController::class, 'resetPassword'])->withTrashed();
         Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword'])->withTrashed();
         Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession'])->withTrashed();
         Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions'])->withTrashed();
         Route::patch('/users/{user}/deactivate', [UserController::class, 'deactivate'])->withTrashed();
         Route::apiResource('users', UserController::class, ['except' => ['destroy']]);
 
-        Route::put('/me', function (Request $request) {
+        Route::get('/me/history', [UserAuditController::class, 'meHistory']);
+        Route::get('/me/transaction-history', [UserAuditController::class, 'meTransactionHistory']);
+        Route::get('/me/activity', [UserAuditController::class, 'meActivity']);
+        Route::get('/me/security', [UserSecurityController::class, 'meShow']);
+        Route::delete('/me/sessions/{tokenId}', [UserSecurityController::class, 'meRevokeSession']);
+        Route::delete('/me/sessions', [UserSecurityController::class, 'meRevokeOtherSessions']);
+
+        Route::match(['put', 'patch'], '/me', function (Request $request) {
             $user = $request->user();
 
             $validated = $request->validate([
+                'first_name' => 'sometimes|nullable|string|max:255',
+                'middle_name' => 'sometimes|nullable|string|max:255',
+                'last_name' => 'sometimes|nullable|string|max:255',
+                'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $user->id,
+                'contact_number' => 'sometimes|nullable|string|max:50',
                 'fullname' => 'sometimes|nullable|string|max:255',
                 'office' => 'sometimes|nullable|string|max:255',
                 'division' => 'sometimes|nullable|string|max:255',
                 'position' => 'sometimes|nullable|string|max:255',
-                'email' => 'sometimes|nullable|email|max:255',
             ]);
 
             $user->update($validated);
 
-            return response()->json($user->fresh());
+            $user->load(['roles', 'office', 'division']);
+            $role = $user->roles->first();
+            $user->setAttribute('role_name', $role?->name);
+            $user->setAttribute('role', $role);
+
+            return response()->json($user);
         });
     });
 });

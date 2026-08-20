@@ -2,46 +2,73 @@
 
 namespace App\Services;
 
-use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 class PmisEmployeeService
 {
-    public const VIEW = 'dbo.vwActive';
-
-    public const COLUMNS = [
-        'PMISNo',
-        'Surname',
-        'Firstname',
-        'Middlename',
-        'BirthDate',
-        'Office',
-        'Divisions',
-        'Status',
-        'Designation',
-        'DesigCode',
-        'TelNo',
-    ];
+    public const SOURCE = 'dbo.xPersonal';
 
     public function getActiveEmployees(?int $limit = null): Collection
     {
-        $query = $this->baseQuery()
-            ->orderBy('Surname')
-            ->orderBy('Firstname');
+        $topClause = $limit !== null ? 'TOP ' . max(1, $limit) : '';
 
-        if ($limit !== null) {
-            $query->limit(max(1, $limit));
-        }
+        $sql = "
+            WITH LatestService AS (
+                SELECT ControlNo, Designation, DesigCode, Office, Divisions, Status,
+                       ROW_NUMBER() OVER (PARTITION BY ControlNo ORDER BY FromDate DESC, ToDate DESC) as rn
+                FROM dbo.xService
+            )
+            SELECT {$topClause}
+                p.ControlNo AS PMISNo,
+                p.PMID,
+                p.Surname,
+                p.Firstname,
+                p.MIddlename,
+                p.BirthDate,
+                p.TelNo,
+                s.Designation,
+                s.DesigCode,
+                s.Office,
+                s.Divisions,
+                s.Status
+            FROM dbo.xPersonal p
+            LEFT JOIN LatestService s ON p.ControlNo = s.ControlNo AND s.rn = 1
+            ORDER BY p.Surname, p.Firstname
+        ";
 
-        return $query->get();
+        return collect(DB::connection('pmis')->select($sql));
     }
 
     public function findByPmisNo(string $pmisNo): ?object
     {
-        return $this->baseQuery()
-            ->where('PMISNo', $pmisNo)
-            ->first();
+        $sql = "
+            WITH LatestService AS (
+                SELECT ControlNo, Designation, DesigCode, Office, Divisions, Status,
+                       ROW_NUMBER() OVER (PARTITION BY ControlNo ORDER BY FromDate DESC, ToDate DESC) as rn
+                FROM dbo.xService
+            )
+            SELECT TOP 1
+                p.ControlNo AS PMISNo,
+                p.PMID,
+                p.Surname,
+                p.Firstname,
+                p.MIddlename,
+                p.BirthDate,
+                p.TelNo,
+                s.Designation,
+                s.DesigCode,
+                s.Office,
+                s.Divisions,
+                s.Status
+            FROM dbo.xPersonal p
+            LEFT JOIN LatestService s ON p.ControlNo = s.ControlNo AND s.rn = 1
+            WHERE p.ControlNo = ? OR p.PMID = ?
+        ";
+
+        $rows = DB::connection('pmis')->select($sql, [$pmisNo, $pmisNo]);
+
+        return $rows[0] ?? null;
     }
 
     public function previewRows(int $limit = 10): Collection
@@ -53,8 +80,9 @@ class PmisEmployeeService
     {
         return [
             'pmis_no' => $this->normalize(data_get($employee, 'PMISNo')),
+            'pmid' => $this->normalize(data_get($employee, 'PMID')),
             'first_name' => $this->normalize(data_get($employee, 'Firstname')),
-            'middle_name' => $this->normalize(data_get($employee, 'Middlename')),
+            'middle_name' => $this->normalize(data_get($employee, 'MIddlename') ?? data_get($employee, 'Middlename')),
             'last_name' => $this->normalize(data_get($employee, 'Surname')),
             'birth_date' => $this->normalizeDate(data_get($employee, 'BirthDate')),
             'designation' => $this->normalize(data_get($employee, 'Designation')),
@@ -70,7 +98,7 @@ class PmisEmployeeService
     {
         return collect([
             data_get($employee, 'Firstname'),
-            data_get($employee, 'Middlename'),
+            data_get($employee, 'MIddlename') ?? data_get($employee, 'Middlename'),
             data_get($employee, 'Surname'),
         ])
             ->filter(fn ($value) => filled($value))
@@ -80,27 +108,12 @@ class PmisEmployeeService
 
     public function previewQueryDescription(int $limit = 10): string
     {
-        $columns = collect(self::COLUMNS)
-            ->map(fn ($column) => '[' . $column . ']')
-            ->implode(', ');
-
-        return 'SELECT TOP ' . min(max(1, $limit), 10) . " {$columns} FROM [dbo].[vwActive] ORDER BY [Surname], [Firstname]";
+        return 'SELECT TOP ' . min(max(1, $limit), 10) . ' p.ControlNo AS PMISNo, p.PMID, p.Surname, p.Firstname, p.MIddlename, p.BirthDate, p.TelNo, s.Designation, s.DesigCode, s.Office, s.Divisions, s.Status FROM dbo.xPersonal p LEFT JOIN dbo.xService s ON p.ControlNo = s.ControlNo ORDER BY p.Surname, p.Firstname';
     }
 
     public function syncQueryDescription(): string
     {
-        $columns = collect(self::COLUMNS)
-            ->map(fn ($column) => '[' . $column . ']')
-            ->implode(', ');
-
-        return "SELECT {$columns} FROM [dbo].[vwActive] ORDER BY [Surname], [Firstname]";
-    }
-
-    private function baseQuery(): Builder
-    {
-        return DB::connection('pmis')
-            ->table(self::VIEW)
-            ->select(self::COLUMNS);
+        return 'SELECT p.ControlNo AS PMISNo, p.PMID, p.Surname, p.Firstname, p.MIddlename, p.BirthDate, p.TelNo, s.Designation, s.DesigCode, s.Office, s.Divisions, s.Status FROM dbo.xPersonal p LEFT JOIN dbo.xService s ON p.ControlNo = s.ControlNo ORDER BY p.Surname, p.Firstname';
     }
 
     private function normalize(mixed $value): ?string
