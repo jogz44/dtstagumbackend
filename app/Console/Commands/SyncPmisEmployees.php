@@ -2,13 +2,17 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Division;
+use App\Models\Office;
 use App\Models\PmisEmployee;
+use App\Models\User;
 use App\Services\AuditService;
 use App\Services\PmisEmployeeService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Str;
 use Throwable;
 
 class SyncPmisEmployees extends Command
@@ -67,8 +71,8 @@ class SyncPmisEmployees extends Command
         $this->info('====================================================');
         $this->line('PMIS source: dbo.xPersonal');
         $this->line('PMIS mode: read-only SELECT via DB::connection(\'pmis\')');
-        $this->line('Local mode: ' . ($commit ? 'commit local MySQL creates/updates only' : 'dry-run only, no MySQL writes'));
-        $this->line('Query: ' . $pmisEmployees->syncQueryDescription());
+        $this->line('Local mode: '.($commit ? 'commit local MySQL creates/updates only' : 'dry-run only, no MySQL writes'));
+        $this->line('Query: '.$pmisEmployees->syncQueryDescription());
         $this->line('----------------------------------------------------');
 
         try {
@@ -99,7 +103,7 @@ class SyncPmisEmployees extends Command
 
                 $missingColumns = $this->missingLocalColumns();
                 if ($missingColumns !== []) {
-                    $this->error('Local table pmis_employees is missing required columns: ' . implode(', ', $missingColumns));
+                    $this->error('Local table pmis_employees is missing required columns: '.implode(', ', $missingColumns));
 
                     return self::FAILURE;
                 }
@@ -151,12 +155,14 @@ class SyncPmisEmployees extends Command
                 if (blank($pmisNo)) {
                     $summary['missing_blank_pmis_no']++;
                     $this->pushExample($examples['invalid'], '(blank PMISNo)');
+
                     continue;
                 }
 
                 if (isset($seenPmisNos[$pmisNo])) {
                     $summary['failures']++;
                     $this->pushExample($examples['failure'], "duplicate {$pmisNo}");
+
                     continue;
                 }
 
@@ -167,6 +173,7 @@ class SyncPmisEmployees extends Command
                     $summary['created']++;
                     $plannedCreates[] = $attributes;
                     $this->pushExample($examples['create'], $pmisNo);
+
                     continue;
                 }
 
@@ -174,6 +181,7 @@ class SyncPmisEmployees extends Command
                     $summary['updated']++;
                     $plannedUpdates[] = [$localEmployee, $attributes];
                     $this->pushExample($examples['update'], $pmisNo);
+
                     continue;
                 }
 
@@ -185,8 +193,8 @@ class SyncPmisEmployees extends Command
             }
 
             if ($commit) {
-                $this->warn('COMMIT MODE: this will write to local MySQL table pmis_employees only.');
-                $this->warn('PMIS remains read-only. No users are modified. No deletes or inactive marking will run.');
+                $this->warn('COMMIT MODE: PMIS employee data and linked local user identity fields may be updated.');
+                $this->warn('PMIS remains read-only. Usernames, roles, status, passwords, and permission overrides are preserved.');
                 $this->line('----------------------------------------------------');
 
                 DB::connection('mysql')->transaction(function () use ($plannedCreates, $plannedUpdates) {
@@ -197,7 +205,7 @@ class SyncPmisEmployees extends Command
                     foreach ($createChunks as $chunk) {
                         $records = array_map(function ($attributes) use ($syncedAt, $now) {
                             return [
-                                'id' => (string) \Illuminate\Support\Str::uuid(),
+                                'id' => (string) Str::uuid(),
                                 ...$attributes,
                                 'pmis_synced_at' => $syncedAt,
                                 'created_at' => $now,
@@ -214,6 +222,15 @@ class SyncPmisEmployees extends Command
                             'pmis_synced_at' => $syncedAt,
                         ])->save();
                     }
+
+                    User::query()
+                        ->whereNotNull('pmis_employee_id')
+                        ->with('pmisEmployee')
+                        ->chunkById(200, function ($linkedUsers) {
+                            foreach ($linkedUsers as $user) {
+                                self::syncLinkedUserIdentity($user);
+                            }
+                        });
                 });
             }
 
@@ -232,13 +249,13 @@ class SyncPmisEmployees extends Command
 
             $this->newLine();
             $this->info('Examples');
-            $this->line('Create: ' . ($examples['create'] ? implode(', ', $examples['create']) : 'none'));
-            $this->line('Update: ' . ($examples['update'] ? implode(', ', $examples['update']) : 'none'));
-            $this->line('Invalid: ' . ($examples['invalid'] ? implode(', ', $examples['invalid']) : 'none'));
-            $this->line('Failure: ' . ($examples['failure'] ? implode(', ', $examples['failure']) : 'none'));
+            $this->line('Create: '.($examples['create'] ? implode(', ', $examples['create']) : 'none'));
+            $this->line('Update: '.($examples['update'] ? implode(', ', $examples['update']) : 'none'));
+            $this->line('Invalid: '.($examples['invalid'] ? implode(', ', $examples['invalid']) : 'none'));
+            $this->line('Failure: '.($examples['failure'] ? implode(', ', $examples['failure']) : 'none'));
 
             if ($duplicatePmisNos->isNotEmpty()) {
-                $this->line('Duplicate PMISNo values: ' . $duplicatePmisNos->keys()->take(10)->implode(', '));
+                $this->line('Duplicate PMISNo values: '.$duplicatePmisNos->keys()->take(10)->implode(', '));
             }
 
             if ($commit) {
@@ -268,13 +285,13 @@ class SyncPmisEmployees extends Command
 
             return self::SUCCESS;
         } catch (Throwable $e) {
-            Log::error('PMIS employee sync failed: ' . $e->getMessage(), ['exception' => $e]);
+            Log::error('PMIS employee sync failed: '.$e->getMessage(), ['exception' => $e]);
 
             app(AuditService::class)->activity(
                 null,
                 'pmis.sync',
                 'PMIS',
-                'PMIS employee sync failed: ' . $e->getMessage(),
+                'PMIS employee sync failed: '.$e->getMessage(),
                 null,
                 [
                     'outcome' => 'failure',
@@ -283,10 +300,104 @@ class SyncPmisEmployees extends Command
             );
 
             $this->error('Failed to sync PMIS employees.');
-            $this->error('Error details: ' . $e->getMessage());
+            $this->error('Error details: '.$e->getMessage());
 
             return self::FAILURE;
         }
+    }
+
+    public static function syncLinkedUserIdentity(User $user): void
+    {
+        $employee = $user->pmisEmployee;
+        if (! $employee) {
+            return;
+        }
+
+        $officeId = self::resolveOfficeId($employee->office);
+        $divisionId = self::resolveDivisionId($officeId, $employee->division);
+
+        $updates = [];
+
+        if (filled($employee->first_name) && $user->first_name !== $employee->first_name) {
+            $updates['first_name'] = $employee->first_name;
+        }
+
+        if (filled($employee->last_name) && $user->last_name !== $employee->last_name) {
+            $updates['last_name'] = $employee->last_name;
+        }
+
+        if ($employee->middle_name !== null && $user->middle_name !== $employee->middle_name) {
+            $updates['middle_name'] = $employee->middle_name;
+        }
+
+        if (filled($employee->pmis_no) && $user->employee_id !== $employee->pmis_no) {
+            $updates['employee_id'] = $employee->pmis_no;
+        }
+
+        if ($employee->birth_date !== null) {
+            $birthDateStr = $employee->birth_date instanceof \DateTimeInterface
+                ? $employee->birth_date->format('Y-m-d')
+                : (string) $employee->birth_date;
+            $userBirthStr = $user->birthdate?->format('Y-m-d');
+            if ($userBirthStr !== $birthDateStr) {
+                $updates['birthdate'] = $birthDateStr;
+            }
+        }
+
+        if (filled($employee->designation) && $user->position !== $employee->designation) {
+            $updates['position'] = $employee->designation;
+        }
+
+        if (filled($employee->employment_status) && $user->employment_status !== $employee->employment_status) {
+            $updates['employment_status'] = $employee->employment_status;
+        }
+
+        if ($officeId && $user->office_id !== $officeId) {
+            $updates['office_id'] = $officeId;
+        }
+
+        if ($divisionId && $user->division_id !== $divisionId) {
+            $updates['division_id'] = $divisionId;
+        }
+
+        if ($updates !== []) {
+            $user->forceFill($updates)->save();
+        }
+    }
+
+    public static function resolveOfficeId(?string $pmisOffice): ?string
+    {
+        if ($pmisOffice === null || trim($pmisOffice) === '') {
+            return null;
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', strtolower(trim($pmisOffice)));
+
+        $office = Office::query()
+            ->whereRaw('LOWER(TRIM(name)) = ?', [$normalized])
+            ->orWhereRaw('LOWER(TRIM(short_name)) = ?', [$normalized])
+            ->first();
+
+        return $office?->id;
+    }
+
+    public static function resolveDivisionId(?string $officeId, ?string $pmisDivision): ?string
+    {
+        if ($officeId === null || $pmisDivision === null || trim($pmisDivision) === '') {
+            return null;
+        }
+
+        $normalized = preg_replace('/\s+/', ' ', strtolower(trim($pmisDivision)));
+
+        $division = Division::query()
+            ->where('office_id', $officeId)
+            ->where(function ($query) use ($normalized) {
+                $query->whereRaw('LOWER(TRIM(name)) = ?', [$normalized])
+                    ->orWhereRaw('LOWER(TRIM(short_name)) = ?', [$normalized]);
+            })
+            ->first();
+
+        return $division?->id;
     }
 
     private function hasChanges(PmisEmployee $localEmployee, array $attributes): bool
@@ -303,6 +414,7 @@ class SyncPmisEmployees extends Command
                 if ($localStr !== $attrStr) {
                     return true;
                 }
+
                 continue;
             }
 

@@ -21,6 +21,7 @@ class AuditService
         'email',
         'is_active',
         'role',
+        'permission_overrides',
     ];
 
     public function accountHistory(

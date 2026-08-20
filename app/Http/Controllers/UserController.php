@@ -3,13 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreUserRequest;
+use App\Http\Requests\UpdateUserAccessRequest;
 use App\Http\Requests\UpdateUserRequest;
+use App\Http\Resources\UserAccessResource;
 use App\Http\Resources\UserResource;
 use App\Models\Division;
 use App\Models\Office;
 use App\Models\PmisEmployee;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\UserAccessService;
 use App\Services\UserDeactivationService;
 use App\Services\UserInitialPasswordService;
 use App\Support\RoleNames;
@@ -54,6 +57,14 @@ class UserController extends Controller
             ->paginate($perPage);
 
         return UserResource::collection($users);
+    }
+
+    public function show(Request $request, User $user): JsonResponse
+    {
+        $this->authorizeUserView($request->user(), $user);
+        $user->loadMissing(['office', 'division', 'roles', 'pmisEmployee']);
+
+        return (new UserAccessResource($user))->response();
     }
 
     public function store(StoreUserRequest $request, AuditService $audit): JsonResponse
@@ -197,10 +208,26 @@ class UserController extends Controller
                     ],
                 );
             }
+
             return $user;
         });
 
         return (new UserResource($user->load(['office', 'division', 'roles'])))->response();
+    }
+
+    public function updateAccess(
+        UpdateUserAccessRequest $request,
+        User $user,
+        UserAccessService $userAccess,
+    ): JsonResponse {
+        $updatedUser = $userAccess->update(
+            $request->user(),
+            $user,
+            $request->validated(),
+            $request,
+        );
+
+        return (new UserAccessResource($updatedUser))->response();
     }
 
     private function isProtectedAccount(User $user): bool
@@ -375,5 +402,22 @@ class UserController extends Controller
             ->first();
 
         return $division?->id;
+    }
+
+    private function authorizeUserView(User $actor, User $targetUser): void
+    {
+        if ($actor->id === $targetUser->id || $actor->username === 'admin' || $actor->hasAnyRole(RoleNames::adminRoles())) {
+            return;
+        }
+
+        try {
+            if ($actor->hasPermissionTo('users.manage') || $actor->hasPermissionTo('users.view')) {
+                return;
+            }
+        } catch (\Throwable) {
+            // A missing optional permission does not grant access.
+        }
+
+        abort(403, 'You are not authorized to view this user.');
     }
 }

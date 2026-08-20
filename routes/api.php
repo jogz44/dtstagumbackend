@@ -5,13 +5,17 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
+use App\Http\Controllers\ReportController;
+use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\UserInitialPasswordService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Route;
 
@@ -52,6 +56,7 @@ Route::post('/login', function (Request $request) {
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
         $user = $request->user()->load(['roles', 'office', 'division', 'permissions']);
+
         return UserResource::make($user);
     });
 
@@ -76,7 +81,7 @@ Route::middleware('auth:sanctum')->group(function () {
             return response()->json(['message' => 'Current password is incorrect.'], 422);
         }
 
-        if ($user->pmisEmployee && app(\App\Services\UserInitialPasswordService::class)->matchesEmployeeBirthday($user->pmisEmployee, $request->new_password)) {
+        if ($user->pmisEmployee && app(UserInitialPasswordService::class)->matchesEmployeeBirthday($user->pmisEmployee, $request->new_password)) {
             return response()->json([
                 'message' => 'Choose a password different from your temporary birthday password.',
                 'errors' => [
@@ -105,7 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'dashboard']);
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
-        Route::get('/reports', [\App\Http\Controllers\ReportController::class, 'index']);
+        Route::get('/reports', [ReportController::class, 'index']);
         Route::get('/documents', [DocumentController::class, 'index']);
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
         Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
@@ -127,8 +132,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/{document}/messages', [DocumentController::class, 'sendMessage']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
-        Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
-        Route::put('/roles/{role}/permissions', [\App\Http\Controllers\RoleController::class, 'updatePermissions']);
+        Route::get('/roles', [RoleController::class, 'index']);
+        Route::get('/roles/options', [RoleController::class, 'options']);
+        Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions']);
         Route::get('/users/{user}/history', [UserAuditController::class, 'history'])->withTrashed();
         Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
@@ -138,7 +144,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession'])->withTrashed();
         Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions'])->withTrashed();
         Route::patch('/users/{user}/deactivate', [UserController::class, 'deactivate'])->withTrashed();
-        Route::apiResource('users', UserController::class, ['except' => ['destroy']]);
+        Route::patch('/users/{user}/access', [UserController::class, 'updateAccess'])->withTrashed();
+        Route::apiResource('users', UserController::class, ['except' => ['destroy']])->withTrashed(['show']);
 
         Route::get('/me/history', [UserAuditController::class, 'meHistory']);
         Route::get('/me/transaction-history', [UserAuditController::class, 'meTransactionHistory']);
@@ -154,7 +161,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 'first_name' => 'sometimes|nullable|string|max:255',
                 'middle_name' => 'sometimes|nullable|string|max:255',
                 'last_name' => 'sometimes|nullable|string|max:255',
-                'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $user->id,
+                'email' => 'sometimes|nullable|email|max:255|unique:users,email,'.$user->id,
                 'contact_number' => 'sometimes|nullable|string|max:50',
                 'fullname' => 'sometimes|nullable|string|max:255',
                 'office' => 'sometimes|nullable|string|max:255',
@@ -176,18 +183,19 @@ Route::middleware('auth:sanctum')->group(function () {
 
 Route::get('/test-pmis', function () {
     try {
-        $pdo = Illuminate\Support\Facades\DB::connection('pmis')->getPdo();
-        $data = Illuminate\Support\Facades\DB::connection('pmis')->table('vwActive')->select('office', 'divisions')->distinct()->limit(5)->get();
+        $pdo = DB::connection('pmis')->getPdo();
+        $data = DB::connection('pmis')->table('vwActive')->select('office', 'divisions')->distinct()->limit(5)->get();
+
         return response()->json([
             'status' => 'success',
             'connection' => 'Connected successfully to SSMS SQL Server!',
-            'sample_data' => $data
+            'sample_data' => $data,
         ]);
-    } catch (\Exception $e) {
+    } catch (Exception $e) {
         return response()->json([
             'status' => 'error',
             'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+            'trace' => $e->getTraceAsString(),
         ], 500);
     }
 });

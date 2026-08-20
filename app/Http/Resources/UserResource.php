@@ -40,6 +40,7 @@ class UserResource extends JsonResource
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),
             'pmis_employee' => $this->whenLoaded('pmisEmployee'),
+            'role_id' => $role?->id,
             'role' => $role ? [
                 'id' => $role->id,
                 'name' => $role->name,
