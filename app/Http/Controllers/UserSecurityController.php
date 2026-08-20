@@ -221,7 +221,12 @@ class UserSecurityController extends Controller
 
     private function authorizeSecurityAction(User $authUser, ?User $targetUser = null): void
     {
-        if ($authUser->username === 'admin' || $authUser->hasAnyRole(RoleNames::adminRoles())) {
+        if (
+            $authUser->username === 'admin'
+            || $authUser->hasAnyRole(RoleNames::adminRoles())
+            || $this->hasPermission($authUser, 'users.reset-password')
+            || $this->hasPermission($authUser, 'users.manage')
+        ) {
             return;
         }
 
@@ -229,6 +234,15 @@ class UserSecurityController extends Controller
             return;
         }
 
-        abort(403, 'Only administrators or the account owner can manage security actions.');
+        abort(403, 'Only administrators or authorized security managers can perform this action.');
+    }
+
+    private function hasPermission(User $authUser, string $permission): bool
+    {
+        try {
+            return $authUser->hasPermissionTo($permission);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

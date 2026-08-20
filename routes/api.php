@@ -64,7 +64,7 @@ Route::middleware('auth:sanctum')->group(function () {
         return response()->json(['message' => 'Logged out successfully.']);
     });
 
-    Route::post('/change-password', function (Request $request) {
+    $changePasswordHandler = function (Request $request) {
         $request->validate([
             'current_password' => 'required|string',
             'new_password' => 'required|string|min:6',
@@ -96,7 +96,10 @@ Route::middleware('auth:sanctum')->group(function () {
             'message' => 'Password updated successfully.',
             'must_change_password' => false,
         ]);
-    }); 
+    };
+
+    Route::post('/me/change-password', $changePasswordHandler);
+    Route::post('/change-password', $changePasswordHandler);
 
     Route::middleware('password.changed')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'dashboard']);
@@ -130,6 +133,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
         Route::get('/users/{user}/security', [UserSecurityController::class, 'show'])->withTrashed();
+        Route::post('/users/{user}/reset-password', [UserSecurityController::class, 'resetPassword'])->withTrashed();
         Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword'])->withTrashed();
         Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession'])->withTrashed();
         Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions'])->withTrashed();
