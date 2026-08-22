@@ -226,8 +226,9 @@ class SyncPmisEmployees extends Command
                     User::query()
                         ->whereNotNull('pmis_employee_id')
                         ->with('pmisEmployee')
-                        ->chunkById(200, function ($linkedUsers) {
+                        ->chunkById(200, function (\Illuminate\Database\Eloquent\Collection $linkedUsers) {
                             foreach ($linkedUsers as $user) {
+                                /** @var User $user */
                                 self::syncLinkedUserIdentity($user);
                             }
                         });
