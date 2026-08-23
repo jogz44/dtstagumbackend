@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\ReportController;
@@ -153,6 +154,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/me/security', [UserSecurityController::class, 'meShow']);
         Route::delete('/me/sessions/{tokenId}', [UserSecurityController::class, 'meRevokeSession']);
         Route::delete('/me/sessions', [UserSecurityController::class, 'meRevokeOtherSessions']);
+
+        Route::get('/me/notifications', [NotificationController::class, 'index']);
+        Route::get('/me/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/me/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('/me/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
 
         Route::match(['put', 'patch'], '/me', function (Request $request) {
             $user = $request->user();

@@ -31,12 +31,27 @@ class UserController extends Controller
             ? $request->integer('per_page')
             : 25;
 
-        $users = User::query()
+        $query = User::query()
             ->with([
                 'office:id,name,short_name',
                 'division:id,name,short_name,office_id',
                 'roles:id,name,display_name,description',
-            ])
+            ]);
+
+        if ($request->filled('is_active')) {
+            $isActive = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            if ($isActive === false) {
+                $query->withTrashed()->where('is_active', false);
+            } else {
+                $query->where('is_active', true);
+            }
+        } elseif ($request->filled('role') || $request->filled('search')) {
+            $query->withTrashed();
+        } else {
+            $query->where('is_active', true);
+        }
+
+        $users = $query
             ->when($request->filled('search'), function ($query) use ($request) {
                 $search = trim((string) $request->input('search'));
                 $query->where(function ($q) use ($search) {
@@ -52,7 +67,6 @@ class UserController extends Controller
             ->when($request->filled('office_id'), fn ($query) => $query->where('office_id', (string) $request->input('office_id')))
             ->when($request->filled('division_id'), fn ($query) => $query->where('division_id', (string) $request->input('division_id')))
             ->when($request->filled('role'), fn ($query) => $query->role((string) $request->input('role')))
-            ->when($request->filled('is_active'), fn ($query) => $query->where('is_active', filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)))
             ->latest()
             ->paginate($perPage);
 
@@ -361,7 +375,7 @@ class UserController extends Controller
         $username = $baseUsername;
         $suffix = 2;
 
-        while (User::where('username', $username)->whereNull('deleted_at')->exists()) {
+        while (User::withTrashed()->whereRaw('LOWER(username) = ?', [strtolower($username)])->exists()) {
             $username = $baseUsername.$suffix;
             $suffix++;
         }

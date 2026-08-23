@@ -7,6 +7,7 @@ use App\Models\Document;
 use App\Models\DocumentHistory;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\DocumentNotificationService;
 use App\Services\UserAuditAccess;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
@@ -204,6 +205,11 @@ class DocumentController extends Controller
                         'assigned_name' => $assignedName,
                     ],
                 ]);
+
+                if ($localUser) {
+                    app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
+                    app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+                }
             }
 
             return $document;
@@ -412,6 +418,11 @@ class DocumentController extends Controller
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement.',
             ]);
+
+            if ($localUser) {
+                app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
+                app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+            }
         }
 
         DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
@@ -520,6 +531,9 @@ class DocumentController extends Controller
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement (Returned).',
             ]);
+
+            app(DocumentNotificationService::class)->notifyReceived($document, $lastUser, $request->user());
+            app(DocumentNotificationService::class)->notifyPending($document, $lastUser);
         }
 
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
@@ -554,6 +568,8 @@ class DocumentController extends Controller
             'status_before' => $statusBefore,
             'status_after' => 'completed',
         ]);
+
+        app(DocumentNotificationService::class)->notifyApproved($document, $request->user());
 
         return response()->json([
             'message' => 'Document marked as complete.',

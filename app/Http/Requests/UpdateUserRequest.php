@@ -66,7 +66,7 @@ class UpdateUserRequest extends FormRequest
         $userId = is_object($routeUser) ? $routeUser->id : $routeUser;
 
         return [
-            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)->whereNull('deleted_at')],
+            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)],
             'is_active' => $this->canManageUsers($this->user())
                 ? ['sometimes', 'boolean']
                 : ['prohibited'],

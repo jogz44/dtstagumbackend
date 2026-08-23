@@ -226,4 +226,32 @@ class PmisUserCreationApiTest extends TestCase
         $response->assertStatus(422)
             ->assertJsonPath('message', 'This employee does not have a verified birth date in PMIS and cannot be issued the standard temporary password.');
     }
+
+    public function test_auto_generated_username_handles_soft_deleted_and_case_insensitive_collisions(): void
+    {
+        $existingSoftDeleted = User::create([
+            'username' => 'maala',
+            'password' => bcrypt('password123'),
+            'first_name' => 'Moira',
+            'last_name' => 'Aala',
+            'is_active' => false,
+        ]);
+        $existingSoftDeleted->delete();
+
+        $employee = PmisEmployee::create([
+            'pmis_no' => '018405',
+            'first_name' => 'MOIRA HEATHER',
+            'last_name' => 'AALA',
+            'birth_date' => '2002-01-10',
+            'office' => 'City Human Resource Management Office',
+        ]);
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/users', [
+            'pmis_employee_id' => $employee->id,
+            'role' => 'Receiver',
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('username', 'maala2');
+    }
 }
