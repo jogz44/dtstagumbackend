@@ -89,14 +89,14 @@ class UserStatisticsApiTest extends TestCase
         $this->assertEquals(1, $afterDeactivateResponse->json('breakdown.deactivated'));
     }
 
-    public function test_status_filtering_is_mutually_exclusive(): void
+    public function test_status_filtering_returns_combined_inactive_and_deactivated_accounts(): void
     {
         $activeUser = $this->createUser(['is_active' => true, 'username' => 'active_test']);
         $inactiveUser = $this->createUser(['is_active' => false, 'username' => 'inactive_test']);
         $deactivatedUser = $this->createUser(['is_active' => false, 'username' => 'deactivated_test']);
         $deactivatedUser->delete();
 
-        // 1. Status=active
+        // 1. Status=active (Active only)
         $activeResponse = $this->getJson('/api/users?status=active');
         $activeResponse->assertStatus(200);
         $activeUsernames = collect($activeResponse->json('data'))->pluck('username');
@@ -104,23 +104,23 @@ class UserStatisticsApiTest extends TestCase
         $this->assertNotContains('inactive_test', $activeUsernames);
         $this->assertNotContains('deactivated_test', $activeUsernames);
 
-        // 2. Status=inactive (normal inactive only, excluding soft-deleted)
+        // 2. Status=inactive (Returns BOTH normal inactive AND soft-deactivated)
         $inactiveResponse = $this->getJson('/api/users?status=inactive');
         $inactiveResponse->assertStatus(200);
-        $inactiveUsernames = collect($inactiveResponse->json('data'))->pluck('username');
+        $inactiveUserList = collect($inactiveResponse->json('data'));
+        $inactiveUsernames = $inactiveUserList->pluck('username');
+
         $this->assertNotContains('active_test', $inactiveUsernames);
         $this->assertContains('inactive_test', $inactiveUsernames);
-        $this->assertNotContains('deactivated_test', $inactiveUsernames);
+        $this->assertContains('deactivated_test', $inactiveUsernames);
 
-        // 3. Status=deactivated (soft-deleted only)
-        $deactivatedResponse = $this->getJson('/api/users?status=deactivated');
-        $deactivatedResponse->assertStatus(200);
-        $deactivatedUsernames = collect($deactivatedResponse->json('data'))->pluck('username');
-        $this->assertNotContains('active_test', $deactivatedUsernames);
-        $this->assertNotContains('inactive_test', $deactivatedUsernames);
-        $this->assertContains('deactivated_test', $deactivatedUsernames);
+        // Verify account_status precision in row response:
+        $inactiveRow = $inactiveUserList->firstWhere('username', 'inactive_test');
+        $deactivatedRow = $inactiveUserList->firstWhere('username', 'deactivated_test');
+        $this->assertEquals('inactive', $inactiveRow['account_status']);
+        $this->assertEquals('deactivated', $deactivatedRow['account_status']);
 
-        // 4. Status=all (includes active, inactive, and soft-deleted)
+        // 3. Status=all (includes active, inactive, and soft-deleted)
         $allResponse = $this->getJson('/api/users?status=all');
         $allResponse->assertStatus(200);
         $allUsernames = collect($allResponse->json('data'))->pluck('username');

@@ -68,11 +68,14 @@ class UserController extends Controller
                 break;
 
             case 'inactive':
-                $query = User::query()->where('is_active', false);
-                break;
-
             case 'deactivated':
-                $query = User::onlyTrashed();
+                $query = User::withTrashed()
+                    ->where(function ($query) {
+                        $query->where(function ($q) {
+                            $q->whereNull('deleted_at')
+                                ->where('is_active', false);
+                        })->orWhereNotNull('deleted_at');
+                    });
                 break;
 
             case 'all':
