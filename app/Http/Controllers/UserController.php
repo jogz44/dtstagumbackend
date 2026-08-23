@@ -24,6 +24,25 @@ use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
+    public function statistics(Request $request): JsonResponse
+    {
+        $activeCount = User::query()->where('is_active', true)->count();
+        $inactiveNormalCount = User::query()->where('is_active', false)->count();
+        $deactivatedCount = User::onlyTrashed()->count();
+        $totalCount = User::withTrashed()->count();
+
+        return response()->json([
+            'total_users' => $totalCount,
+            'active_users' => $activeCount,
+            'inactive_users' => $inactiveNormalCount + $deactivatedCount,
+            'breakdown' => [
+                'active' => $activeCount,
+                'inactive' => $inactiveNormalCount,
+                'deactivated' => $deactivatedCount,
+            ],
+        ]);
+    }
+
     public function index(Request $request)
     {
         $allowed = [25, 50, 100];
@@ -31,25 +50,42 @@ class UserController extends Controller
             ? $request->integer('per_page')
             : 25;
 
-        $query = User::query()
-            ->with([
-                'office:id,name,short_name',
-                'division:id,name,short_name,office_id',
-                'roles:id,name,display_name,description',
-            ]);
-
-        if ($request->filled('is_active')) {
-            $isActive = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-            if ($isActive === false) {
-                $query->withTrashed()->where('is_active', false);
+        $status = strtolower((string) $request->input('status', ''));
+        if (! in_array($status, ['all', 'active', 'inactive', 'deactivated'], true)) {
+            if ($request->filled('is_active')) {
+                $isActive = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+                $status = $isActive === false ? 'inactive' : 'active';
+            } elseif ($request->filled('role') || $request->filled('search')) {
+                $status = 'all';
             } else {
-                $query->where('is_active', true);
+                $status = 'active';
             }
-        } elseif ($request->filled('role') || $request->filled('search')) {
-            $query->withTrashed();
-        } else {
-            $query->where('is_active', true);
         }
+
+        switch ($status) {
+            case 'active':
+                $query = User::query()->where('is_active', true);
+                break;
+
+            case 'inactive':
+                $query = User::query()->where('is_active', false);
+                break;
+
+            case 'deactivated':
+                $query = User::onlyTrashed();
+                break;
+
+            case 'all':
+            default:
+                $query = User::withTrashed();
+                break;
+        }
+
+        $query->with([
+            'office:id,name,short_name',
+            'division:id,name,short_name,office_id',
+            'roles:id,name,display_name,description',
+        ]);
 
         $users = $query
             ->when($request->filled('search'), function ($query) use ($request) {

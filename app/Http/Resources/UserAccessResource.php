@@ -24,6 +24,7 @@ class UserAccessResource extends JsonResource
             'role' => $role?->name,
             'role_label' => $role ? RoleNames::label($role->name) : null,
             'is_active' => (bool) $this->is_active,
+            'account_status' => $this->account_status,
             'deleted_at' => $this->deleted_at?->toIso8601String(),
         ];
     }

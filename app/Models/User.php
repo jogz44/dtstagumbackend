@@ -52,6 +52,7 @@ class User extends Authenticatable
 
     protected $appends = [
         'full_name',
+        'account_status',
     ];
 
     protected $keyType = 'string';
@@ -124,5 +125,18 @@ class User extends Authenticatable
     public function getFullNameAttribute(): string
     {
         return trim("{$this->first_name} {$this->last_name}");
+    }
+
+    public function getAccountStatusAttribute(): string
+    {
+        if ($this->deleted_at !== null) {
+            return 'deactivated';
+        }
+
+        if (! $this->is_active) {
+            return 'inactive';
+        }
+
+        return 'active';
     }
 }

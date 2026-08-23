@@ -36,6 +36,7 @@ class UserResource extends JsonResource
             'employment_status' => $this->employment_status,
             'avatar_url' => $this->avatar_url,
             'is_active' => $this->is_active,
+            'account_status' => $this->account_status,
             'must_change_password' => $this->must_change_password,
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),

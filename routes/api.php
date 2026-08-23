@@ -136,6 +136,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/roles', [RoleController::class, 'index']);
         Route::get('/roles/options', [RoleController::class, 'options']);
         Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions']);
+        Route::get('/users/statistics', [UserController::class, 'statistics']);
         Route::get('/users/{user}/history', [UserAuditController::class, 'history'])->withTrashed();
         Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
