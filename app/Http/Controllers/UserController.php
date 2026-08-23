@@ -128,7 +128,7 @@ class UserController extends Controller
 
             $employee = PmisEmployee::findOrFail($validated['pmis_employee_id']);
 
-            if ($employee->user()->exists()) {
+            if ($employee->user()->withTrashed()->exists()) {
                 abort(response()->json([
                     'message' => 'This PMIS employee already has a linked portal account.',
                     'errors' => ['pmis_employee_id' => ['This PMIS employee already has a linked portal account.']],

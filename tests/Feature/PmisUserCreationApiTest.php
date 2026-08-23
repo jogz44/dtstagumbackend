@@ -208,6 +208,40 @@ class PmisUserCreationApiTest extends TestCase
             ->assertJsonValidationErrors('pmis_employee_id');
     }
 
+    public function test_duplicate_pmis_employee_link_against_soft_deleted_account_is_rejected(): void
+    {
+        $employee = PmisEmployee::create([
+            'pmis_no' => '077778',
+            'first_name' => 'Deactivated',
+            'last_name' => 'Linked',
+            'birth_date' => '1988-05-20',
+            'office' => 'City Human Resource Management Office',
+        ]);
+
+        $deactivatedUser = User::create([
+            'username' => 'deactivated_linked',
+            'password' => bcrypt('password123'),
+            'first_name' => 'Deactivated',
+            'last_name' => 'Linked',
+            'office_id' => $this->hrOffice->id,
+            'pmis_employee_id' => $employee->id,
+            'is_active' => false,
+        ]);
+        $deactivatedUser->delete();
+
+        $beforeCount = User::withTrashed()->count();
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/users', [
+            'pmis_employee_id' => $employee->id,
+            'role' => 'Receiver',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('pmis_employee_id');
+
+        $this->assertSame($beforeCount, User::withTrashed()->count());
+    }
+
     public function test_employee_without_birthdate_is_rejected(): void
     {
         $employee = PmisEmployee::create([

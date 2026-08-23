@@ -29,11 +29,17 @@ class PmisEmployeeController extends Controller
         ]);
 
         $query = PmisEmployee::query()
-            ->withExists('user')
-            ->with(['user:id,pmis_employee_id,username,is_active']);
+            ->withExists(['user as user_exists' => function ($q) {
+                $q->withTrashed();
+            }])
+            ->with(['user' => function ($q) {
+                $q->withTrashed()->select('id', 'pmis_employee_id', 'username', 'is_active', 'deleted_at');
+            }]);
 
         if ($request->boolean('available_only')) {
-            $query->whereDoesntHave('user');
+            $query->whereDoesntHave('user', function ($q) {
+                $q->withTrashed();
+            });
         }
 
         if (isset($validated['search']) && filled($validated['search'])) {
