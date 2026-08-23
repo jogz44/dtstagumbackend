@@ -50,16 +50,17 @@ class UserController extends Controller
             ? $request->integer('per_page')
             : 25;
 
-        $status = strtolower((string) $request->input('status', ''));
+        if ($request->filled('status')) {
+            $status = strtolower((string) $request->input('status'));
+        } elseif ($request->filled('is_active')) {
+            $isActive = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            $status = $isActive === false ? 'inactive' : 'active';
+        } else {
+            $status = 'all';
+        }
+
         if (! in_array($status, ['all', 'active', 'inactive', 'deactivated'], true)) {
-            if ($request->filled('is_active')) {
-                $isActive = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
-                $status = $isActive === false ? 'inactive' : 'active';
-            } elseif ($request->filled('role') || $request->filled('search')) {
-                $status = 'all';
-            } else {
-                $status = 'active';
-            }
+            $status = 'all';
         }
 
         switch ($status) {
