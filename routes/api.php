@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\DocumentTrackingController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
@@ -118,6 +119,10 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
+        Route::get('/documents/{document}/tracking', [DocumentTrackingController::class, 'show']);
+        Route::get('/document-tracking', [DocumentTrackingController::class, 'index']);
+        Route::get('/document-tracking/statistics', [DocumentTrackingController::class, 'statistics']);
+        Route::get('/document-tracking/search', [DocumentTrackingController::class, 'search']);
         Route::put('/documents/{document}', [DocumentController::class, 'update']);
         Route::post('/documents/{document}/transfer', [DocumentController::class, 'transfer']);
         Route::post('/documents/{document}/release', [DocumentController::class, 'release']);
