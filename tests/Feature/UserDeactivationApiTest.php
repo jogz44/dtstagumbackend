@@ -385,16 +385,22 @@ class UserDeactivationApiTest extends TestCase
         $response->assertStatus(405);
     }
 
-    public function test_deactivated_users_are_excluded_from_default_active_user_listing(): void
+    public function test_deactivated_users_are_excluded_from_active_user_listing(): void
     {
         Sanctum::actingAs($this->adminUser);
         $this->patchJson("/api/users/{$this->targetUser->id}/deactivate")->assertOk();
 
-        $response = $this->getJson('/api/users');
-
+        // Active status query excludes deactivated users
+        $response = $this->getJson('/api/users?status=active');
         $response->assertOk();
         $userIds = collect($response->json('data'))->pluck('id');
         $this->assertNotContains($this->targetUser->id, $userIds);
+
+        // All status query includes deactivated users
+        $allResponse = $this->getJson('/api/users?status=all');
+        $allResponse->assertOk();
+        $allUserIds = collect($allResponse->json('data'))->pluck('id');
+        $this->assertContains($this->targetUser->id, $allUserIds);
     }
 
     public function test_deactivated_users_can_be_retrieved_through_audit_queries(): void

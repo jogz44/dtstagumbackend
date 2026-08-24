@@ -2,6 +2,8 @@
 
 namespace App\Http\Requests;
 
+use App\Models\User;
+use App\Support\RoleNames;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -48,7 +50,14 @@ class UpdateUserRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return true;
+        $actor = $this->user();
+        $target = $this->route('user');
+
+        if (! $actor instanceof User || ! $target instanceof User) {
+            return false;
+        }
+
+        return $actor->id === $target->id || $this->canManageUsers($actor);
     }
 
     public function rules(): array
@@ -57,8 +66,10 @@ class UpdateUserRequest extends FormRequest
         $userId = is_object($routeUser) ? $routeUser->id : $routeUser;
 
         return [
-            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)->whereNull('deleted_at')],
-            'is_active' => ['sometimes', 'boolean'],
+            'username' => ['sometimes', 'string', 'max:255', Rule::unique('users', 'username')->ignore($userId)],
+            'is_active' => $this->canManageUsers($this->user())
+                ? ['sometimes', 'boolean']
+                : ['prohibited'],
 
             'first_name' => ['prohibited'],
             'last_name' => ['prohibited'],
@@ -85,5 +96,22 @@ class UpdateUserRequest extends FormRequest
             'avatar_url' => ['prohibited'],
             'avatarUrl' => ['prohibited'],
         ];
+    }
+
+    private function canManageUsers(?User $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+
+        if ($user->username === 'admin' || $user->hasAnyRole(RoleNames::adminRoles())) {
+            return true;
+        }
+
+        try {
+            return $user->hasPermissionTo('users.manage');
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

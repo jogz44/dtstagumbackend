@@ -7,6 +7,7 @@ use App\Models\Document;
 use App\Models\DocumentHistory;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\DocumentNotificationService;
 use App\Services\UserAuditAccess;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
@@ -56,7 +57,7 @@ class DocumentController extends Controller
         $documents = $query->latest()->get()->map(function ($doc) {
             $assigned = $doc->assigned_user;
             if (!empty($assigned) && Str::isUuid($assigned)) {
-                $user = \App\Models\User::find($assigned);
+                $user = User::find($assigned);
                 $doc->assigned_user = $user ? $user->full_name : $assigned;
             }
             return $doc;
@@ -81,9 +82,12 @@ class DocumentController extends Controller
         $events = DocumentHistory::query()
             ->where('document_id', $document->id)
             ->with([
-                'user:id,first_name,last_name,username,is_active',
-                'fromUser:id,first_name,last_name,username,is_active',
-                'toUser:id,first_name,last_name,username,is_active',
+                'user:id,first_name,last_name,username,is_active,office_id',
+                'user.office:id,name,short_name',
+                'fromUser:id,first_name,last_name,username,is_active,office_id',
+                'fromUser.office:id,name,short_name',
+                'toUser:id,first_name,last_name,username,is_active,office_id',
+                'toUser.office:id,name,short_name',
             ])
             ->oldest('created_at')
             ->orderBy('id')
@@ -154,8 +158,8 @@ class DocumentController extends Controller
             }
 
             // 1. Log in canonical document transaction history.
-            $historyType = DocumentHistory::RECEIVED;
-            $historyRemarks = 'Document received.';
+            $historyType = DocumentHistory::REGISTERED;
+            $historyRemarks = 'Document registered.';
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'remarks' => $historyRemarks,
@@ -201,6 +205,11 @@ class DocumentController extends Controller
                         'assigned_name' => $assignedName,
                     ],
                 ]);
+
+                if ($localUser) {
+                    app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
+                    app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+                }
             }
 
             return $document;
@@ -290,9 +299,12 @@ class DocumentController extends Controller
             return null;
         }
 
+        $officeName = $user?->relationLoaded('office') && $user->office ? ($user->office->name ?? $user->office->short_name) : null;
+
         return [
             'id' => $user?->id,
             'name' => $name,
+            'office' => $officeName,
             'is_active' => $user?->is_active,
         ];
     }
@@ -362,8 +374,13 @@ class DocumentController extends Controller
 
         $document->update($validated);
 
+        $historyRemarks = 'Document details were updated.';
+        if (!empty($validated['remarks'])) {
+            $historyRemarks = $validated['remarks'];
+        }
+
         DocumentHistory::record($document, 'edited', $request->user(), [
-            'remarks' => 'Document details were updated.',
+            'remarks' => $historyRemarks,
         ]);
 
         return response()->json([
@@ -401,6 +418,11 @@ class DocumentController extends Controller
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement.',
             ]);
+
+            if ($localUser) {
+                app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
+                app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+            }
         }
 
         DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
@@ -509,6 +531,9 @@ class DocumentController extends Controller
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement (Returned).',
             ]);
+
+            app(DocumentNotificationService::class)->notifyReceived($document, $lastUser, $request->user());
+            app(DocumentNotificationService::class)->notifyPending($document, $lastUser);
         }
 
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
@@ -524,29 +549,34 @@ class DocumentController extends Controller
             'document' => $document->fresh(),
         ]);
     }
-public function complete(Request $request, Document $document): JsonResponse
-{
-    $validated = $request->validate([
-        'remarks' => 'nullable|string',
-    ]);
 
-    $statusBefore = $document->status;
+    public function complete(Request $request, Document $document): JsonResponse
+    {
+        $validated = $request->validate([
+            'remarks' => 'nullable|string',
+        ]);
 
-    $document->update([
-        'status' => 'completed',
-    ]);
+        $statusBefore = $document->status;
 
-    DocumentHistory::record($document, DocumentHistory::COMPLETED, $request->user(), [
-        'remarks' => $validated['remarks'] ?? 'Document marked as complete.',
-        'status_before' => $statusBefore,
-        'status_after' => 'completed',
-    ]);
+        $document->update([
+            'status' => 'completed',
+            'remarks' => $validated['remarks'] ?? null,
+        ]);
 
-    return response()->json([
-        'message' => 'Document marked as complete.',
-        'document' => $document->fresh(),
-    ]);
-}
+        DocumentHistory::record($document, DocumentHistory::COMPLETED, $request->user(), [
+            'remarks' => $validated['remarks'] ?? 'Document marked as complete.',
+            'status_before' => $statusBefore,
+            'status_after' => 'completed',
+        ]);
+
+        app(DocumentNotificationService::class)->notifyApproved($document, $request->user());
+
+        return response()->json([
+            'message' => 'Document marked as complete.',
+            'document' => $document->fresh(),
+        ]);
+    }
+
     public function share(Request $request, Document $document): JsonResponse
     {
         $validated = $request->validate([
@@ -573,11 +603,13 @@ public function complete(Request $request, Document $document): JsonResponse
     public function showAttachment(Request $request, \App\Models\DocumentAttachment $attachment)
     {
         $disk = $attachment->disk ?? 'shared_documents';
-        if (!Storage::disk($disk)->exists($attachment->path)) {
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = Storage::disk($disk);
+        if (!$storage->exists($attachment->path)) {
             abort(404, 'File not found');
         }
 
-        return Storage::disk($disk)->response($attachment->path, $attachment->original_name, [
+        return $storage->response($attachment->path, $attachment->original_name, [
             'Content-Type' => $attachment->mime_type,
         ], 'inline');
     }
@@ -605,7 +637,7 @@ public function complete(Request $request, Document $document): JsonResponse
     public function getMessages(Document $document): JsonResponse
     {
         $messages = $document->messages()
-            ->with('user:id,first_name,last_name,username,position')
+            ->with(['user:id,first_name,last_name,username,position,office_id', 'user.office'])
             ->oldest()
             ->get();
 
@@ -629,7 +661,7 @@ public function complete(Request $request, Document $document): JsonResponse
 
         return response()->json([
             'message' => 'Message sent successfully.',
-            'data' => $message->load('user:id,first_name,last_name,username,position')
+            'data' => $message->load(['user:id,first_name,last_name,username,position,office_id', 'user.office'])
         ], 201);
     }
 
@@ -720,6 +752,7 @@ public function complete(Request $request, Document $document): JsonResponse
     {
         $user = $request->user();
 
+        /** @var \App\Models\DocumentAcknowledgement|null $acknowledgement */
         $acknowledgement = $document->acknowledgements()
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
@@ -734,8 +767,8 @@ public function complete(Request $request, Document $document): JsonResponse
                 'remarks' => 'Acknowledged/Opened by recipient.'
             ]);
 
-            DocumentHistory::record($document, 'RECEIVED', $user, [
-                'remarks' => 'Document acknowledged/opened.',
+            DocumentHistory::record($document, 'ACKNOWLEDGED', $user, [
+                'remarks' => 'Document opened and acknowledged by recipient.',
                 'status_before' => $document->status,
                 'status_after' => $document->status,
             ]);

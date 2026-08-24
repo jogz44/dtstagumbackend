@@ -199,6 +199,43 @@ class PmisEmployeeDirectoryApiTest extends TestCase
         $availRes->assertOk()->assertJsonPath('pagination.total', 1)->assertJsonPath('data.0.first_name', 'Unlinked');
     }
 
+    public function test_available_only_excludes_deactivated_soft_deleted_linked_employees(): void
+    {
+        $emp1 = PmisEmployee::create([
+            'pmis_no' => '003003',
+            'first_name' => 'DeactivatedLinked',
+            'last_name' => 'Employee',
+            'birth_date' => '1991-01-01',
+            'office' => 'HR Office',
+        ]);
+
+        PmisEmployee::create([
+            'pmis_no' => '003004',
+            'first_name' => 'TrulyUnlinked',
+            'last_name' => 'Employee',
+            'birth_date' => '1993-03-03',
+            'office' => 'HR Office',
+        ]);
+
+        $user = User::create([
+            'username' => 'deactivated_user',
+            'password' => bcrypt('password'),
+            'first_name' => 'DeactivatedLinked',
+            'last_name' => 'Employee',
+            'office_id' => $this->office->id,
+            'pmis_employee_id' => $emp1->id,
+            'is_active' => false,
+        ]);
+        $user->delete();
+
+        Sanctum::actingAs($this->adminUser);
+
+        $availRes = $this->getJson('/api/pmis-employees?available_only=true');
+        $availRes->assertOk()
+            ->assertJsonPath('pagination.total', 1)
+            ->assertJsonPath('data.0.first_name', 'TrulyUnlinked');
+    }
+
     public function test_pagination_defaults_and_clamps_page_size(): void
     {
         for ($i = 1; $i <= 30; $i++) {

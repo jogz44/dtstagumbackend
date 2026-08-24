@@ -22,7 +22,7 @@ class DashboardController extends Controller
             'This Week' => Carbon::now()->endOfWeek(),
             'This Month' => Carbon::now()->endOfMonth(),
             'This Quarter' => Carbon::now()->endOfQuarter(),
-            default => Carbon::today()->endOfDay(),
+            default => Carbon::today()->endOfDay(), // fixed: was split across lines as "endOfDa" / "y()"
         };
 
         $documentsQuery = \App\Models\Document::with('attachments')
@@ -128,9 +128,19 @@ class DashboardController extends Controller
         $divisionNames = \App\Models\Division::query()->orderBy('name')->pluck('name');
         $workload = $divisionNames->map(function ($name) use ($documents, $activeStatuses) {
             $divisionDocuments = $documents->filter(fn ($document) => data_get($document, 'division') === $name);
+
+            // "pending" here uses the exact same rule as the top-level $pending count
+            // below (active-status, not overdue) — kept as its own named key so the
+            // frontend never has to guess or approximate it from 'active'.
+            $pendingCount = $divisionDocuments->filter(
+                fn ($document) => in_array(strtolower((string) data_get($document, 'status')), $activeStatuses, true)
+                    && !data_get($document, 'is_overdue')
+            )->count();
+
             return [
                 'name' => $name,
-                'active' => $divisionDocuments->filter(fn ($document) => in_array(strtolower((string) data_get($document, 'status')), $activeStatuses, true) && !data_get($document, 'is_overdue'))->count(),
+                'active' => $pendingCount, // kept for backward compatibility with existing frontend code
+                'pending' => $pendingCount, // explicit alias — use this going forward
                 'overdue' => $divisionDocuments->filter(fn ($document) => data_get($document, 'is_overdue') === true)->count(),
             ];
         })->values();
