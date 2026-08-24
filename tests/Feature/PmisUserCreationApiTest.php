@@ -208,6 +208,40 @@ class PmisUserCreationApiTest extends TestCase
             ->assertJsonValidationErrors('pmis_employee_id');
     }
 
+    public function test_duplicate_pmis_employee_link_against_soft_deleted_account_is_rejected(): void
+    {
+        $employee = PmisEmployee::create([
+            'pmis_no' => '077778',
+            'first_name' => 'Deactivated',
+            'last_name' => 'Linked',
+            'birth_date' => '1988-05-20',
+            'office' => 'City Human Resource Management Office',
+        ]);
+
+        $deactivatedUser = User::create([
+            'username' => 'deactivated_linked',
+            'password' => bcrypt('password123'),
+            'first_name' => 'Deactivated',
+            'last_name' => 'Linked',
+            'office_id' => $this->hrOffice->id,
+            'pmis_employee_id' => $employee->id,
+            'is_active' => false,
+        ]);
+        $deactivatedUser->delete();
+
+        $beforeCount = User::withTrashed()->count();
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/users', [
+            'pmis_employee_id' => $employee->id,
+            'role' => 'Receiver',
+        ]);
+
+        $response->assertStatus(422)
+            ->assertJsonValidationErrors('pmis_employee_id');
+
+        $this->assertSame($beforeCount, User::withTrashed()->count());
+    }
+
     public function test_employee_without_birthdate_is_rejected(): void
     {
         $employee = PmisEmployee::create([
@@ -225,5 +259,33 @@ class PmisUserCreationApiTest extends TestCase
 
         $response->assertStatus(422)
             ->assertJsonPath('message', 'This employee does not have a verified birth date in PMIS and cannot be issued the standard temporary password.');
+    }
+
+    public function test_auto_generated_username_handles_soft_deleted_and_case_insensitive_collisions(): void
+    {
+        $existingSoftDeleted = User::create([
+            'username' => 'maala',
+            'password' => bcrypt('password123'),
+            'first_name' => 'Moira',
+            'last_name' => 'Aala',
+            'is_active' => false,
+        ]);
+        $existingSoftDeleted->delete();
+
+        $employee = PmisEmployee::create([
+            'pmis_no' => '018405',
+            'first_name' => 'MOIRA HEATHER',
+            'last_name' => 'AALA',
+            'birth_date' => '2002-01-10',
+            'office' => 'City Human Resource Management Office',
+        ]);
+
+        $response = $this->actingAs($this->adminUser)->postJson('/api/users', [
+            'pmis_employee_id' => $employee->id,
+            'role' => 'Receiver',
+        ]);
+
+        $response->assertStatus(201)
+            ->assertJsonPath('username', 'maala2');
     }
 }

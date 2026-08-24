@@ -3,13 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreUserRequest;
+use App\Http\Requests\UpdateUserAccessRequest;
 use App\Http\Requests\UpdateUserRequest;
+use App\Http\Resources\UserAccessResource;
 use App\Http\Resources\UserResource;
 use App\Models\Division;
 use App\Models\Office;
 use App\Models\PmisEmployee;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\UserAccessService;
 use App\Services\UserDeactivationService;
 use App\Services\UserInitialPasswordService;
 use App\Support\RoleNames;
@@ -21,6 +24,25 @@ use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
+    public function statistics(Request $request): JsonResponse
+    {
+        $activeCount = User::query()->where('is_active', true)->count();
+        $inactiveNormalCount = User::query()->where('is_active', false)->count();
+        $deactivatedCount = User::onlyTrashed()->count();
+        $totalCount = User::withTrashed()->count();
+
+        return response()->json([
+            'total_users' => $totalCount,
+            'active_users' => $activeCount,
+            'inactive_users' => $inactiveNormalCount + $deactivatedCount,
+            'breakdown' => [
+                'active' => $activeCount,
+                'inactive' => $inactiveNormalCount,
+                'deactivated' => $deactivatedCount,
+            ],
+        ]);
+    }
+
     public function index(Request $request)
     {
         $allowed = [25, 50, 100];
@@ -28,12 +50,48 @@ class UserController extends Controller
             ? $request->integer('per_page')
             : 25;
 
-        $users = User::query()
-            ->with([
-                'office:id,name,short_name',
-                'division:id,name,short_name,office_id',
-                'roles:id,name,display_name,description',
-            ])
+        if ($request->filled('status')) {
+            $status = strtolower((string) $request->input('status'));
+        } elseif ($request->filled('is_active')) {
+            $isActive = filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE);
+            $status = $isActive === false ? 'inactive' : 'active';
+        } else {
+            $status = 'all';
+        }
+
+        if (! in_array($status, ['all', 'active', 'inactive', 'deactivated'], true)) {
+            $status = 'all';
+        }
+
+        switch ($status) {
+            case 'active':
+                $query = User::query()->where('is_active', true);
+                break;
+
+            case 'inactive':
+            case 'deactivated':
+                $query = User::withTrashed()
+                    ->where(function ($query) {
+                        $query->where(function ($q) {
+                            $q->whereNull('deleted_at')
+                                ->where('is_active', false);
+                        })->orWhereNotNull('deleted_at');
+                    });
+                break;
+
+            case 'all':
+            default:
+                $query = User::withTrashed();
+                break;
+        }
+
+        $query->with([
+            'office:id,name,short_name',
+            'division:id,name,short_name,office_id',
+            'roles:id,name,display_name,description',
+        ]);
+
+        $users = $query
             ->when($request->filled('search'), function ($query) use ($request) {
                 $search = trim((string) $request->input('search'));
                 $query->where(function ($q) use ($search) {
@@ -49,11 +107,18 @@ class UserController extends Controller
             ->when($request->filled('office_id'), fn ($query) => $query->where('office_id', (string) $request->input('office_id')))
             ->when($request->filled('division_id'), fn ($query) => $query->where('division_id', (string) $request->input('division_id')))
             ->when($request->filled('role'), fn ($query) => $query->role((string) $request->input('role')))
-            ->when($request->filled('is_active'), fn ($query) => $query->where('is_active', filter_var($request->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)))
             ->latest()
             ->paginate($perPage);
 
         return UserResource::collection($users);
+    }
+
+    public function show(Request $request, User $user): JsonResponse
+    {
+        $this->authorizeUserView($request->user(), $user);
+        $user->loadMissing(['office', 'division', 'roles', 'pmisEmployee']);
+
+        return (new UserAccessResource($user))->response();
     }
 
     public function store(StoreUserRequest $request, AuditService $audit): JsonResponse
@@ -63,7 +128,7 @@ class UserController extends Controller
 
             $employee = PmisEmployee::findOrFail($validated['pmis_employee_id']);
 
-            if ($employee->user()->exists()) {
+            if ($employee->user()->withTrashed()->exists()) {
                 abort(response()->json([
                     'message' => 'This PMIS employee already has a linked portal account.',
                     'errors' => ['pmis_employee_id' => ['This PMIS employee already has a linked portal account.']],
@@ -197,10 +262,26 @@ class UserController extends Controller
                     ],
                 );
             }
+
             return $user;
         });
 
         return (new UserResource($user->load(['office', 'division', 'roles'])))->response();
+    }
+
+    public function updateAccess(
+        UpdateUserAccessRequest $request,
+        User $user,
+        UserAccessService $userAccess,
+    ): JsonResponse {
+        $updatedUser = $userAccess->update(
+            $request->user(),
+            $user,
+            $request->validated(),
+            $request,
+        );
+
+        return (new UserAccessResource($updatedUser))->response();
     }
 
     private function isProtectedAccount(User $user): bool
@@ -334,7 +415,7 @@ class UserController extends Controller
         $username = $baseUsername;
         $suffix = 2;
 
-        while (User::where('username', $username)->whereNull('deleted_at')->exists()) {
+        while (User::withTrashed()->whereRaw('LOWER(username) = ?', [strtolower($username)])->exists()) {
             $username = $baseUsername.$suffix;
             $suffix++;
         }
@@ -375,5 +456,22 @@ class UserController extends Controller
             ->first();
 
         return $division?->id;
+    }
+
+    private function authorizeUserView(User $actor, User $targetUser): void
+    {
+        if ($actor->id === $targetUser->id || $actor->username === 'admin' || $actor->hasAnyRole(RoleNames::adminRoles())) {
+            return;
+        }
+
+        try {
+            if ($actor->hasPermissionTo('users.manage') || $actor->hasPermissionTo('users.view')) {
+                return;
+            }
+        } catch (\Throwable) {
+            // A missing optional permission does not grant access.
+        }
+
+        abort(403, 'You are not authorized to view this user.');
     }
 }

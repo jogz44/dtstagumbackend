@@ -7,6 +7,7 @@ use App\Models\Document;
 use App\Models\DocumentHistory;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\DocumentNotificationService;
 use App\Services\UserAuditAccess;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
@@ -56,7 +57,7 @@ class DocumentController extends Controller
         $documents = $query->latest()->get()->map(function ($doc) {
             $assigned = $doc->assigned_user;
             if (!empty($assigned) && Str::isUuid($assigned)) {
-                $user = \App\Models\User::find($assigned);
+                $user = User::find($assigned);
                 $doc->assigned_user = $user ? $user->full_name : $assigned;
             }
             return $doc;
@@ -157,8 +158,8 @@ class DocumentController extends Controller
             }
 
             // 1. Log in canonical document transaction history.
-            $historyType = DocumentHistory::RECEIVED;
-            $historyRemarks = $document->remarks ?: 'Document received.';
+            $historyType = DocumentHistory::REGISTERED;
+            $historyRemarks = $document->remarks ?: 'Document registered.';
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'remarks' => $historyRemarks,
@@ -204,6 +205,11 @@ class DocumentController extends Controller
                         'assigned_name' => $assignedName,
                     ],
                 ]);
+
+                if ($localUser) {
+                    app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
+                    app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+                }
             }
 
             return $document;
@@ -412,6 +418,11 @@ class DocumentController extends Controller
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement.',
             ]);
+
+            if ($localUser) {
+                app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
+                app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+            }
         }
 
         DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
@@ -520,6 +531,9 @@ class DocumentController extends Controller
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement (Returned).',
             ]);
+
+            app(DocumentNotificationService::class)->notifyReceived($document, $lastUser, $request->user());
+            app(DocumentNotificationService::class)->notifyPending($document, $lastUser);
         }
 
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
@@ -555,6 +569,8 @@ class DocumentController extends Controller
             'status_after' => 'completed',
         ]);
 
+        app(DocumentNotificationService::class)->notifyApproved($document, $request->user());
+
         return response()->json([
             'message' => 'Document marked as complete.',
             'document' => $document->fresh(),
@@ -587,11 +603,13 @@ class DocumentController extends Controller
     public function showAttachment(Request $request, \App\Models\DocumentAttachment $attachment)
     {
         $disk = $attachment->disk ?? 'shared_documents';
-        if (!Storage::disk($disk)->exists($attachment->path)) {
+        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        $storage = Storage::disk($disk);
+        if (!$storage->exists($attachment->path)) {
             abort(404, 'File not found');
         }
 
-        return Storage::disk($disk)->response($attachment->path, $attachment->original_name, [
+        return $storage->response($attachment->path, $attachment->original_name, [
             'Content-Type' => $attachment->mime_type,
         ], 'inline');
     }
@@ -734,6 +752,7 @@ class DocumentController extends Controller
     {
         $user = $request->user();
 
+        /** @var \App\Models\DocumentAcknowledgement|null $acknowledgement */
         $acknowledgement = $document->acknowledgements()
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)

@@ -26,6 +26,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $assigned_user
  * @property bool $is_read_only
  * @property string|null $status
+ * @property \Illuminate\Support\Carbon|null $due_date
  * @property string|null $notes
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
@@ -42,7 +43,7 @@ class Document extends Model
         'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'document_type',
         'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
-        'assigned_user', 'is_read_only', 'status', 'notes', 'due_date',
+        'assigned_user', 'is_read_only', 'status', 'due_date', 'notes',
     ];
 
     protected function casts(): array
@@ -53,69 +54,8 @@ class Document extends Model
             'send_to_all' => 'boolean',
             'is_internal' => 'boolean',
             'is_read_only' => 'boolean',
-            'due_date' => 'date',
+            'due_date' => 'date:Y-m-d',
         ];
-    }
-
-    protected static ?bool $hasDueDateColumn = null;
-
-    public static function checkDueDateColumn()
-    {
-        if (self::$hasDueDateColumn === null) {
-            self::$hasDueDateColumn = \Illuminate\Support\Facades\Schema::hasColumn('documents', 'due_date');
-        }
-        return self::$hasDueDateColumn;
-    }
-
-    protected static function booted()
-    {
-        static::saving(function ($document) {
-            if (!static::checkDueDateColumn()) {
-                if (isset($document->attributes['due_date'])) {
-                    $dueDate = $document->attributes['due_date'];
-                    unset($document->attributes['due_date']);
-                    
-                    $notes = $document->attributes['notes'] ?? '';
-                    $notes = preg_replace('/^\[DUE_DATE:[^\]]*\]\r?\n?/', '', $notes);
-                    
-                    if ($dueDate) {
-                        $dateStr = ($dueDate instanceof \DateTimeInterface) ? $dueDate->format('Y-m-d') : $dueDate;
-                        $document->attributes['notes'] = "[DUE_DATE:{$dateStr}]\n" . $notes;
-                    } else {
-                        $document->attributes['notes'] = $notes;
-                    }
-                }
-            }
-        });
-    }
-
-    public function getDueDateAttribute($value)
-    {
-        if (!static::checkDueDateColumn()) {
-            $notes = $this->attributes['notes'] ?? '';
-            if (preg_match('/^\[DUE_DATE:([^\]]*)\]/', $notes, $matches)) {
-                return \Illuminate\Support\Carbon::parse($matches[1]);
-            }
-            return null;
-        }
-        return $value ? \Illuminate\Support\Carbon::parse($value) : null;
-    }
-
-    public function getNotesAttribute($value)
-    {
-        if (!static::checkDueDateColumn() && $value) {
-            return preg_replace('/^\[DUE_DATE:[^\]]*\]\r?\n?/', '', $value);
-        }
-        return $value;
-    }
-
-    public function toArray()
-    {
-        $array = parent::toArray();
-        if (!static::checkDueDateColumn()) {
-            $array['due_date'] = $this->due_date?->format('Y-m-d');
-        }
-        return $array;
     }
 
     public function creator(): BelongsTo

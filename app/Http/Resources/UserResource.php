@@ -7,6 +7,16 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class UserResource extends JsonResource
 {
+    /**
+     * Create a new resource instance.
+     *
+     * @param  mixed  $resource
+     */
+    public function __construct($resource)
+    {
+        parent::__construct($resource);
+    }
+
     public function toArray(Request $request): array
     {
         $role = $this->relationLoaded('roles') ? $this->roles->first() : null;
@@ -18,6 +28,7 @@ class UserResource extends JsonResource
             'first_name' => $this->first_name,
             'last_name' => $this->last_name,
             'full_name' => $this->full_name,
+            'email' => $this->email,
             'employee_id' => $this->employee_id,
             'pmis_employee_id' => $this->pmis_employee_id,
             'birthdate' => $this->birthdate?->toDateString(),
@@ -25,10 +36,12 @@ class UserResource extends JsonResource
             'employment_status' => $this->employment_status,
             'avatar_url' => $this->avatar_url,
             'is_active' => $this->is_active,
+            'account_status' => $this->account_status,
             'must_change_password' => $this->must_change_password,
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),
             'pmis_employee' => $this->whenLoaded('pmisEmployee'),
+            'role_id' => $role?->id,
             'role' => $role ? [
                 'id' => $role->id,
                 'name' => $role->name,
