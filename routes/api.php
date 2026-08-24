@@ -110,6 +110,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'dashboard']);
+        Route::get('/dashboard/analytics', [DashboardController::class, 'analytics']);
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [ReportController::class, 'index']);
