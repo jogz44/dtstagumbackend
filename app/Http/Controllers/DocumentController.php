@@ -158,7 +158,7 @@ class DocumentController extends Controller
 
             // 1. Log in canonical document transaction history.
             $historyType = DocumentHistory::RECEIVED;
-            $historyRemarks = 'Document received.';
+            $historyRemarks = $document->remarks ?: 'Document received.';
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'remarks' => $historyRemarks,
@@ -470,7 +470,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, 'archived', $request->user(), [
-            'remarks' => 'Document archived.',
+            'remarks' => $request->input('remarks') ?: 'Document archived.',
             'status_before' => $statusBefore,
             'status_after' => 'archived',
         ]);
