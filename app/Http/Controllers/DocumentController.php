@@ -879,12 +879,6 @@ class DocumentController extends Controller
             $document->update([
                 'status' => $newStatus,
             ]);
-
-            DocumentHistory::record($document, 'ACKNOWLEDGED', $user, [
-                'remarks' => 'Document opened and acknowledged by recipient.',
-                'status_before' => $statusBefore,
-                'status_after' => $newStatus,
-            ]);
         }
 
         return response()->json([
