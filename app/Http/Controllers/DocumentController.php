@@ -616,6 +616,10 @@ class DocumentController extends Controller
 
     public function retrieve(Request $request, Document $document): JsonResponse
     {
+        $validated = $request->validate([
+            'remarks' => 'nullable|string',
+        ]);
+
         $statusBefore = $document->status;
 
         $document->update([
@@ -623,7 +627,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, 'RETRIEVED', $request->user(), [
-            'remarks' => 'Document retrieved from completed.',
+            'remarks' => isset($validated['remarks']) && trim($validated['remarks']) !== '' ? trim($validated['remarks']) : 'Document retrieved from completed.',
             'status_before' => $statusBefore,
             'status_after' => 'registered',
         ]);
