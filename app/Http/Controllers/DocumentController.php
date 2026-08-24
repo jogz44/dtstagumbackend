@@ -537,6 +537,8 @@ class DocumentController extends Controller
         }
 
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
+            'to_user_id' => $lastUser?->id,
+            'to_division_id' => $lastUser?->division_id,
             'remarks' => $validated['remarks'] ?? 'Document returned to sender.',
             'from_office' => $fromOffice,
             'to_office' => $toOffice,
