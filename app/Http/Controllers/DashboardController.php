@@ -2,13 +2,41 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\DashboardAnalyticsService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
+use InvalidArgumentException;
 
 class DashboardController extends Controller
 {
+    /**
+     * Consolidated Dashboard Analytics Endpoint
+     */
+    public function analytics(Request $request, DashboardAnalyticsService $analyticsService): JsonResponse
+    {
+        try {
+            $filters = $request->only(['range', 'date_from', 'date_to']);
+            $data = $analyticsService->getAnalytics($request->user(), $filters);
+
+            return response()->json($data);
+        } catch (InvalidArgumentException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+                'errors' => [
+                    'date_range' => [$e->getMessage()],
+                ],
+            ], 422);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'message' => 'Failed to load dashboard analytics.',
+                'error' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
     public function dashboard(Request $request)
     {
         $range = $request->input('range', 'Today');

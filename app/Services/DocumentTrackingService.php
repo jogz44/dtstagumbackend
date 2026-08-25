@@ -232,7 +232,7 @@ class DocumentTrackingService
     /**
      * Base authorized query returning unique documents accessible to $viewer.
      */
-    private function buildAuthorizedDocumentQuery(User $viewer): Builder
+    public function buildAuthorizedDocumentQuery(User $viewer): Builder
     {
         $query = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
 
@@ -253,7 +253,7 @@ class DocumentTrackingService
         });
     }
 
-    private function checkIsAdmin(User $user): bool
+    public function checkIsAdmin(User $user): bool
     {
         if ($user->hasRole(RoleNames::ADMIN)) {
             return true;
@@ -265,7 +265,7 @@ class DocumentTrackingService
         return in_array($roleName, RoleNames::adminRoles(), true);
     }
 
-    private function applyIncomingCondition(Builder $query, User $viewer): void
+    public function applyIncomingCondition(Builder $query, User $viewer): void
     {
         if ($this->checkIsAdmin($viewer)) {
             $query->whereIn(DB::raw('LOWER(status)'), ['registered', 'incoming', 'pending', 'received', 'in_process', 'in progress', 'in_transit']);
@@ -288,7 +288,7 @@ class DocumentTrackingService
         });
     }
 
-    private function applyOutgoingCondition(Builder $query, User $viewer): void
+    public function applyOutgoingCondition(Builder $query, User $viewer): void
     {
         if ($this->checkIsAdmin($viewer)) {
             $query->whereIn(DB::raw('LOWER(status)'), ['outgoing', 'released', 'transferred', 'forwarded']);
@@ -310,7 +310,7 @@ class DocumentTrackingService
         });
     }
 
-    private function resolveDirectionForUser(Document $document, User $viewer): string
+    public function resolveDirectionForUser(Document $document, User $viewer): string
     {
         $officeName = $viewer->office?->name;
 
