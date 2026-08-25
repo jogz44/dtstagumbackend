@@ -111,9 +111,13 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed')->group(function () {
         Route::get('/dashboard', [DashboardController::class, 'dashboard']);
+        Route::get('/dashboard/analytics', [DashboardController::class, 'analytics']);
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [ReportController::class, 'index']);
+        Route::get('/reports/dashboard', [ReportController::class, 'index']);
+        Route::get('/reports/offices', [ReportController::class, 'offices']);
+        Route::get('/reports/divisions', [ReportController::class, 'divisions']);
         Route::get('/documents', [DocumentController::class, 'index']);
         Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);

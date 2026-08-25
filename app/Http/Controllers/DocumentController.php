@@ -57,6 +57,74 @@ class DocumentController extends Controller
                 ->where('created_at', '<', now()->subHours(24));
         }
 
+        if ($request->filled('office_assignment')) {
+            $assignment = $request->query('office_assignment');
+            if ($assignment === '__unassigned__' || $assignment === 'unassigned') {
+                $query->where(function ($q) {
+                    $q->whereNull('office_id')
+                      ->orWhereNull('office_assignment')
+                      ->orWhere('office_assignment', '')
+                      ->orWhere('office_assignment', 'Unassigned Office');
+                });
+            } else {
+                $query->where('office_assignment', $assignment);
+            }
+        } elseif ($request->filled('office_id')) {
+            $officeId = $request->query('office_id');
+            if ($officeId === 'unassigned' || $officeId === '__unassigned__') {
+                $query->where(function ($q) {
+                    $q->whereNull('office_id')
+                      ->orWhereNull('office_assignment')
+                      ->orWhere('office_assignment', '')
+                      ->orWhere('office_assignment', 'Unassigned Office');
+                });
+            } else {
+                $office = \App\Models\Office::find($officeId);
+                if ($office) {
+                    $query->where(function ($q) use ($officeId, $office) {
+                        $q->where('office_id', $officeId)
+                          ->orWhere('office_assignment', $office->name);
+                    });
+                } else {
+                    $query->where('office_id', $officeId);
+                }
+            }
+        }
+
+        if ($request->filled('division_assignment')) {
+            $assignment = $request->query('division_assignment');
+            if ($assignment === '__unassigned__' || $assignment === 'unassigned') {
+                $query->where(function ($q) {
+                    $q->whereNull('division_id')
+                      ->orWhereNull('division_assignment')
+                      ->orWhere('division_assignment', '')
+                      ->orWhere('division_assignment', 'Unassigned Division');
+                });
+            } else {
+                $query->where('division_assignment', $assignment);
+            }
+        } elseif ($request->filled('division_id')) {
+            $divisionId = $request->query('division_id');
+            if ($divisionId === 'unassigned' || $divisionId === '__unassigned__') {
+                $query->where(function ($q) {
+                    $q->whereNull('division_id')
+                      ->orWhereNull('division_assignment')
+                      ->orWhere('division_assignment', '')
+                      ->orWhere('division_assignment', 'Unassigned Division');
+                });
+            } else {
+                $division = \App\Models\Division::find($divisionId);
+                if ($division) {
+                    $query->where(function ($q) use ($divisionId, $division) {
+                        $q->where('division_id', $divisionId)
+                          ->orWhere('division_assignment', $division->name);
+                    });
+                } else {
+                    $query->where('division_id', $divisionId);
+                }
+            }
+        }
+
         $documents = $query->latest()->get()->map(function ($doc) {
             $assigned = $doc->assigned_user;
             if (! empty($assigned) && Str::isUuid($assigned)) {
