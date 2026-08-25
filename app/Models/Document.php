@@ -107,6 +107,11 @@ class Document extends Model
                           $q3->whereIn('to_office', $officeNames);
                       });
                 }
+
+                // Or user has handled this document (performed any action in its history)
+                $q->orWhereHas('histories', function ($qHist) use ($user) {
+                    $qHist->where('performed_by', $user->id);
+                });
             });
     }
 
@@ -237,11 +242,16 @@ class Document extends Model
 
             if (!empty($officeNames)) {
                 $q->orWhereHas('histories', function ($q3) use ($officeNames) {
-                    $q3->whereIn('action', ['assigned', 'transfer', 'returned', 'released'])
-                       ->whereIn('from_office', $officeNames)
-                       ->whereColumn('from_office', '!=', 'to_office');
+                    $q3->whereIn('action', ['ASSIGNED', 'TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
+                       ->whereIn('from_office', $officeNames);
                 });
             }
+
+            // Also include if the user specifically performed the outgoing action
+            $q->orWhereHas('histories', function ($q4) use ($user) {
+                $q4->whereIn('action', ['TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
+                   ->where('performed_by', $user->id);
+            });
         });
     }
 
