@@ -118,8 +118,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports/offices', [ReportController::class, 'offices']);
         Route::get('/reports/divisions', [ReportController::class, 'divisions']);
         Route::get('/documents', [DocumentController::class, 'index']);
-        Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
+        Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);

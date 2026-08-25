@@ -192,6 +192,17 @@ class DocumentTimelineApiTest extends TestCase
             ->assertJsonPath('data.0.action', 'TRANSFERRED_TO_OFFICE');
     }
 
+    public function test_unopened_count_endpoint_resolves_correctly_without_model_not_found_error(): void
+    {
+        $user = $this->createUser('testuser', 'Test', 'User');
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/documents/unopened-count');
+
+        $response->assertOk()
+            ->assertJsonStructure(['count']);
+    }
+
     private function createAdminUser(): User
     {
         $admin = $this->createUser('admin'.Str::lower(Str::random(5)), 'Ada', 'Admin');
