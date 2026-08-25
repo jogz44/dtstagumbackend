@@ -47,9 +47,9 @@ class DocumentTransactionHistoryTest extends TestCase
             'document_id' => $document['id'],
             'tracking_number' => $document['tracking_number'],
             'performed_by' => $user->id,
-            'action' => DocumentHistory::REGISTERED,
+            'action' => 'RELEASED',
             'status_before' => null,
-            'status_after' => 'outgoing',
+            'status_after' => 'released',
             'from_office' => 'HRMO',
             'to_office' => 'BAC',
         ]);
@@ -173,16 +173,16 @@ class DocumentTransactionHistoryTest extends TestCase
             'tracking_number' => $document['tracking_number'],
             'performed_by' => $actor->id,
             'to_user_id' => $assignee->id,
-            'action' => DocumentHistory::ASSIGNED,
-            'status_before' => 'outgoing',
-            'status_after' => 'outgoing',
+            'action' => 'RELEASED',
+            'status_before' => null,
+            'status_after' => 'released',
         ]);
 
         $this->assertSame(
             1,
             DocumentHistory::query()
                 ->where('document_id', $document['id'])
-                ->where('action', DocumentHistory::ASSIGNED)
+                ->where('action', 'RELEASED')
                 ->count()
         );
     }
