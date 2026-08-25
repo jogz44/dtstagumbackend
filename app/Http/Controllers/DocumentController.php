@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreDocumentRequest;
 use App\Models\Document;
+use App\Models\DocumentAcknowledgement;
+use App\Models\DocumentAttachment;
 use App\Models\DocumentHistory;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\DocumentNotificationService;
 use App\Services\UserAuditAccess;
 use App\Support\RoleNames;
+use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -42,29 +45,52 @@ class DocumentController extends Controller
             $query->forOutgoing($user);
         } elseif ($tab === 'archived') {
             $query->where('status', 'archived')
-                  ->where(function ($q) use ($user) {
-                      $q->where('created_by', $user->id)
+                ->where(function ($q) use ($user) {
+                    $q->where('created_by', $user->id)
                         ->orWhere('office_assignment', $user->office?->name)
                         ->orWhereHas('creator', function ($q2) use ($user) {
                             $q2->where('office_id', $user->office_id);
                         });
-                  });
+                });
         } elseif ($tab === 'overdue') {
             $query->forIncoming($user)
-                  ->where('created_at', '<', now()->subHours(24));
+                ->where('created_at', '<', now()->subHours(24));
         }
 
         $documents = $query->latest()->get()->map(function ($doc) {
             $assigned = $doc->assigned_user;
-            if (!empty($assigned) && Str::isUuid($assigned)) {
+            if (! empty($assigned) && Str::isUuid($assigned)) {
                 $user = User::find($assigned);
                 $doc->assigned_user = $user ? $user->full_name : $assigned;
             }
+
             return $doc;
         });
 
         return response()->json([
-            'data' => $documents
+            'data' => $documents,
+        ]);
+    }
+
+    public function show(Request $request, Document $document): JsonResponse
+    {
+        $document->load([
+            'creator',
+            'creator.office',
+            'attachments',
+            'acknowledgements' => fn ($query) => $query->latest(),
+            'acknowledgements.user:id,first_name,last_name,username,is_active,position,office_id',
+            'acknowledgements.user.office',
+        ]);
+
+        $assigned = $document->assigned_user;
+        if (! empty($assigned) && Str::isUuid($assigned)) {
+            $user = User::find($assigned);
+            $document->assigned_user = $user ? $user->full_name : $assigned;
+        }
+
+        return response()->json([
+            'data' => $document,
         ]);
     }
 
@@ -135,12 +161,52 @@ class DocumentController extends Controller
                 $validated['assigned_user'] = $user->full_name;
             }
 
+            $userOffice = $user->office?->name;
+            $destOffice = $validated['office_assignment'] ?? null;
+
+            // Similarity check for same office
+            $isSameOffice = false;
+            if ($userOffice && $destOffice) {
+                $userClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $userOffice);
+                $userClean = trim(preg_replace('/\s+/', ' ', $userClean));
+
+                $destClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $destOffice);
+                $destClean = trim(preg_replace('/\s+/', ' ', $destClean));
+
+                if (stripos($userClean, $destClean) !== false || stripos($destClean, $userClean) !== false) {
+                    $isSameOffice = true;
+                }
+            }
+
+            $isSelf = $validated['self_assign'] ?? false;
+            if ($isSelf) {
+                $newStatus = 'registered';
+            } elseif ($isSameOffice) {
+                $newStatus = 'pending';
+            } else {
+                $newStatus = 'released';
+            }
+
+            // Resolve target user if possible
+            $targetUser = null;
+            $assignedName = $validated['assigned_user'] ?? null;
+            if ($assignedName && $assignedName !== '-Select user-' && $assignedName !== '-Select office first-') {
+                // First try resolving by ID (like in release)
+                $targetUser = User::find($assignedName);
+                if ($targetUser) {
+                    $assignedName = $targetUser->full_name;
+                } else {
+                    // Resolve by full name string
+                    $targetUser = $this->resolveAssignedUser($assignedName);
+                }
+            }
+
             $document = Document::create([
                 ...$validated,
                 'tracking_number' => 'DOC-'.Str::upper(Str::random(12)),
                 'created_by' => $user->id,
-                // Automatically set status to registered if self-assigned, else outgoing
-                'status' => ($validated['self_assign'] ?? false) ? 'registered' : 'outgoing',
+                'assigned_user' => $assignedName,
+                'status' => $newStatus,
             ]);
 
             $disk = config('filesystems.document_disk', 'shared_documents');
@@ -158,12 +224,14 @@ class DocumentController extends Controller
             }
 
             // 1. Log in canonical document transaction history.
-            $historyType = DocumentHistory::REGISTERED;
-            $historyRemarks = $document->remarks ?: 'Document registered.';
+            $historyType = ($newStatus === 'released') ? DocumentHistory::RELEASED : DocumentHistory::REGISTERED;
+            $historyRemarks = $document->remarks ?: (($newStatus === 'released') ? 'Document physically released.' : 'Document registered.');
 
             DocumentHistory::record($document, $historyType, $request->user(), [
+                'to_user_id' => $targetUser?->id,
+                'to_division_id' => $targetUser?->division_id,
                 'remarks' => $historyRemarks,
-                'from_office' => $document->origin_sender,
+                'from_office' => $document->origin_sender ?? $user->office?->name,
                 'to_office' => $document->office_assignment,
                 'status_after' => $document->status,
             ]);
@@ -171,7 +239,7 @@ class DocumentController extends Controller
             // If sent to all and internal:
             if ($document->send_to_all && $document->is_internal) {
                 DocumentHistory::record($document, 'shared', $request->user(), [
-                    'remarks' => 'Shared and sent to all employees in ' . ($user->office?->name ?? 'the office') . '.',
+                    'remarks' => 'Shared and sent to all employees in '.($user->office?->name ?? 'the office').'.',
                     'from_office' => $user->office?->name,
                     'to_office' => $user->office?->name,
                     'status_before' => $document->status,
@@ -179,36 +247,34 @@ class DocumentController extends Controller
                 ]);
             }
 
-            // 2. Add message/remarks if present - REMOVED: remarks are remarks, not messages.
-
             // 3. Create pending acknowledgement if a user is assigned
-            if (!empty($document->assigned_user) && $document->assigned_user !== '-Select user-' && $document->assigned_user !== '-Select office first-') {
-                $assignedName = $document->assigned_user;
-                $localUser = $this->resolveAssignedUser($assignedName);
-
+            if ($assignedName && $assignedName !== '-Select user-' && $assignedName !== '-Select office first-') {
                 $document->acknowledgements()->create([
-                    'user_id' => $localUser?->id,
+                    'user_id' => $targetUser?->id,
                     'assigned_name' => $assignedName,
                     'from_office' => $document->origin_sender ?? $user->office?->name,
-                    'remarks' => 'Pending acknowledgement.',
+                    'remarks' => ($newStatus === 'released') ? 'Pending acknowledgement (Released).' : 'Pending acknowledgement.',
                 ]);
 
-                DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
-                    'to_user_id' => $localUser?->id,
-                    'to_division_id' => $localUser?->division_id,
-                    'remarks' => "Document assigned to {$assignedName}.",
-                    'from_office' => $document->origin_sender,
-                    'to_office' => $document->office_assignment,
-                    'status_before' => $document->status,
-                    'status_after' => $document->status,
-                    'metadata' => [
-                        'assigned_name' => $assignedName,
-                    ],
-                ]);
+                if ($newStatus !== 'released') {
+                    DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
+                        'to_user_id' => $targetUser?->id,
+                        'to_division_id' => $targetUser?->division_id,
+                        // No remark on first assignment — only re-assignment shows a remark
+                        'remarks' => null,
+                        'from_office' => $document->origin_sender ?? $user->office?->name,
+                        'to_office' => $document->office_assignment,
+                        'status_before' => $document->status,
+                        'status_after' => $document->status,
+                        'metadata' => [
+                            'assigned_name' => $assignedName,
+                        ],
+                    ]);
+                }
 
-                if ($localUser) {
-                    app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
-                    app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+                if ($targetUser) {
+                    app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $request->user());
+                    app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
                 }
             }
 
@@ -361,6 +427,7 @@ class DocumentController extends Controller
             ->lower()
             ->toString();
     }
+
     public function update(Request $request, Document $document): JsonResponse
     {
         $validated = $request->validate([
@@ -375,7 +442,7 @@ class DocumentController extends Controller
         $document->update($validated);
 
         $historyRemarks = 'Document details were updated.';
-        if (!empty($validated['remarks'])) {
+        if (! empty($validated['remarks'])) {
             $historyRemarks = $validated['remarks'];
         }
 
@@ -401,43 +468,74 @@ class DocumentController extends Controller
         $statusBefore = $document->status;
         $fromOffice = $document->office_assignment ?? $document->origin_sender;
 
-        $document->update([
-            'office_assignment' => $validated['office_assignment'] ?? $document->office_assignment,
-            'division_assignment' => $validated['division_assignment'] ?? null,
-            'assigned_user' => $validated['assigned_user'] ?? null,
-            'status' => 'outgoing', // Set to outgoing for the sender
-        ]);
+        $userOffice = $request->user()->office?->name;
+        $destOffice = $validated['office_assignment'] ?? $document->office_assignment;
 
-        if (!empty($document->assigned_user) && $document->assigned_user !== '-Select user-' && $document->assigned_user !== '-Select office first-') {
-            $assignedName = $document->assigned_user;
-            $localUser = $this->resolveAssignedUser($assignedName);
+        // Similarity check for same office
+        $isSameOffice = false;
+        if ($userOffice && $destOffice) {
+            $userClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $userOffice);
+            $userClean = trim(preg_replace('/\s+/', ' ', $userClean));
 
-            $document->acknowledgements()->create([
-                'user_id' => $localUser?->id,
-                'assigned_name' => $assignedName,
-                'from_office' => $request->user()->office?->name,
-                'remarks' => 'Pending acknowledgement.',
-            ]);
+            $destClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $destOffice);
+            $destClean = trim(preg_replace('/\s+/', ' ', $destClean));
 
-            if ($localUser) {
-                app(DocumentNotificationService::class)->notifyReceived($document, $localUser, $request->user());
-                app(DocumentNotificationService::class)->notifyPending($document, $localUser);
+            if (stripos($userClean, $destClean) !== false || stripos($destClean, $userClean) !== false) {
+                $isSameOffice = true;
             }
         }
 
-        DocumentHistory::record($document, DocumentHistory::ASSIGNED, $request->user(), [
-            'remarks' => $validated['remarks'] ?? 'Document transferred.',
+        $newStatus = $isSameOffice ? 'pending' : 'released';
+        $historyAction = $isSameOffice ? DocumentHistory::ASSIGNED : DocumentHistory::RELEASED;
+
+        // Resolve target user
+        $targetUser = null;
+        $assignedName = $validated['assigned_user'] ?? null;
+        if ($assignedName && $assignedName !== '-Select user-' && $assignedName !== '-Select office first-') {
+            // First try resolving by ID (like in release)
+            $targetUser = User::find($assignedName);
+            if ($targetUser) {
+                $assignedName = $targetUser->full_name;
+            } else {
+                // Resolve by full name string
+                $targetUser = $this->resolveAssignedUser($assignedName);
+            }
+        }
+
+        $document->update([
+            'office_assignment' => $destOffice,
+            'division_assignment' => $validated['division_assignment'] ?? null,
+            'assigned_user' => $assignedName,
+            'status' => $newStatus,
+        ]);
+
+        if ($targetUser) {
+            $document->acknowledgements()->create([
+                'user_id' => $targetUser->id,
+                'assigned_name' => $assignedName,
+                'from_office' => $request->user()->office?->name,
+                'remarks' => $isSameOffice ? 'Pending acknowledgement.' : 'Pending acknowledgement (Released).',
+            ]);
+
+            app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $request->user());
+            app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+        }
+
+        DocumentHistory::record($document, $historyAction, $request->user(), [
+            'to_user_id' => $targetUser?->id,
+            'to_division_id' => $targetUser?->division_id,
+            'remarks' => $validated['remarks'] ?? ($isSameOffice ? 'Document transferred.' : 'Document physically released.'),
             'from_office' => $fromOffice,
             'to_office' => $document->office_assignment,
             'status_before' => $statusBefore,
-            'status_after' => 'outgoing',
+            'status_after' => $newStatus,
             'metadata' => [
                 'assigned_name' => $document->assigned_user,
             ],
         ]);
 
         return response()->json([
-            'message' => 'Document transferred successfully.',
+            'message' => 'Document processed successfully.',
             'document' => $document->fresh(),
         ]);
     }
@@ -446,23 +544,50 @@ class DocumentController extends Controller
     {
         $validated = $request->validate([
             'to_office' => 'nullable|string',
+            'to_division' => 'nullable|string',
             'to_user' => 'nullable|string',
             'remarks' => 'nullable|string',
         ]);
 
         $statusBefore = $document->status;
 
+        $targetUser = null;
+        $assignedUser = null;
+        if (! empty($validated['to_user'])) {
+            $targetUser = User::find($validated['to_user']);
+            if ($targetUser) {
+                $assignedUser = $targetUser->full_name;
+            }
+        }
+
         $document->update([
             'status' => 'released',
+            'office_assignment' => $validated['to_office'] ?? $document->office_assignment,
+            'division_assignment' => $validated['to_division'] ?? null,
+            'assigned_user' => $assignedUser ?? $validated['to_user'] ?? null,
         ]);
 
+        if ($targetUser) {
+            $document->acknowledgements()->create([
+                'user_id' => $targetUser->id,
+                'assigned_name' => $targetUser->full_name,
+                'from_office' => $request->user()->office?->name,
+                'remarks' => 'Pending acknowledgement (Released).',
+            ]);
+
+            app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $request->user());
+            app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+        }
+
         DocumentHistory::record($document, 'released', $request->user(), [
+            'to_user_id' => $targetUser?->id,
+            'to_division_id' => $targetUser?->division_id,
             'remarks' => $validated['remarks'] ?? 'Document physically released.',
             'to_office' => $validated['to_office'] ?? null,
             'status_before' => $statusBefore,
             'status_after' => 'released',
             'metadata' => [
-                'released_to' => $validated['to_user'] ?? null,
+                'released_to' => $assignedUser ?? $validated['to_user'] ?? null,
             ],
         ]);
 
@@ -491,6 +616,7 @@ class DocumentController extends Controller
             'document' => $document->fresh(),
         ]);
     }
+
     public function returnDocument(Request $request, Document $document): JsonResponse
     {
         $validated = $request->validate([
@@ -537,6 +663,8 @@ class DocumentController extends Controller
         }
 
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
+            'to_user_id' => $lastUser?->id,
+            'to_division_id' => $lastUser?->division_id,
             'remarks' => $validated['remarks'] ?? 'Document returned to sender.',
             'from_office' => $fromOffice,
             'to_office' => $toOffice,
@@ -600,12 +728,12 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function showAttachment(Request $request, \App\Models\DocumentAttachment $attachment)
+    public function showAttachment(Request $request, DocumentAttachment $attachment)
     {
         $disk = $attachment->disk ?? 'shared_documents';
-        /** @var \Illuminate\Filesystem\FilesystemAdapter $storage */
+        /** @var FilesystemAdapter $storage */
         $storage = Storage::disk($disk);
-        if (!$storage->exists($attachment->path)) {
+        if (! $storage->exists($attachment->path)) {
             abort(404, 'File not found');
         }
 
@@ -646,7 +774,7 @@ class DocumentController extends Controller
             ->get();
 
         return response()->json([
-            'data' => $messages
+            'data' => $messages,
         ]);
     }
 
@@ -665,7 +793,7 @@ class DocumentController extends Controller
 
         return response()->json([
             'message' => 'Message sent successfully.',
-            'data' => $message->load(['user:id,first_name,last_name,username,position,office_id', 'user.office'])
+            'data' => $message->load(['user:id,first_name,last_name,username,position,office_id', 'user.office']),
         ], 201);
     }
 
@@ -684,10 +812,132 @@ class DocumentController extends Controller
         return response()->json($combined);
     }
 
+    /**
+     * Admin-only: reassign a document to another user within their office.
+     */
+    public function reassign(Request $request, Document $document): JsonResponse
+    {
+        $user = $request->user();
+
+        $validated = $request->validate([
+            'assigned_user' => 'required|string',
+            'remarks' => 'nullable|string',
+        ]);
+
+        $statusBefore = $document->status;
+
+        // Resolve the target user
+        $targetUser = User::find($validated['assigned_user']);
+        $assignedName = $validated['assigned_user'];
+        if ($targetUser) {
+            $assignedName = $targetUser->full_name;
+        } else {
+            $targetUser = $this->resolveAssignedUser($validated['assigned_user']);
+            if ($targetUser) {
+                $assignedName = $targetUser->full_name;
+            }
+        }
+
+        $document->update([
+            'assigned_user' => $assignedName,
+        ]);
+
+        // Create acknowledgement for the new assignee
+        if ($targetUser) {
+            $document->acknowledgements()->create([
+                'user_id' => $targetUser->id,
+                'assigned_name' => $assignedName,
+                'from_office' => $user->office?->name,
+                'remarks' => 'Pending acknowledgement (Reassigned).',
+            ]);
+
+            app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $user);
+            app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+        }
+
+        DocumentHistory::record($document, 'REASSIGNED', $user, [
+            'to_user_id' => $targetUser?->id,
+            'to_division_id' => $targetUser?->division_id,
+            'remarks' => $validated['remarks'] ?? "Document reassigned to {$assignedName}.",
+            'from_office' => $document->office_assignment,
+            'to_office' => $document->office_assignment,
+            'status_before' => $statusBefore,
+            'status_after' => $document->status,
+            'metadata' => [
+                'assigned_name' => $assignedName,
+            ],
+        ]);
+
+        return response()->json([
+            'message' => 'Document reassigned successfully.',
+            'document' => $document->fresh()->load('attachments'),
+        ]);
+    }
+
+    /**
+     * Admin/supervisor-only: force-send a notification to the assigned user.
+     */
+    public function forceNotify(Request $request, Document $document): JsonResponse
+    {
+        $user = $request->user();
+
+        $assignedName = $document->assigned_user;
+        if (empty($assignedName)) {
+            return response()->json(['message' => 'Document has no assigned user.'], 422);
+        }
+
+        $targetUser = $this->resolveAssignedUser($assignedName);
+        if (! $targetUser) {
+            return response()->json(['message' => 'Could not resolve the assigned user.'], 422);
+        }
+
+        app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $user);
+        app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+
+        DocumentHistory::record($document, 'FORCE_NOTIFIED', $user, [
+            'to_user_id' => $targetUser->id,
+            'remarks' => $request->input('remarks') ?? 'Force notification sent by '.$user->full_name.'.',
+            'status_before' => $document->status,
+            'status_after' => $document->status,
+        ]);
+
+        return response()->json([
+            'message' => 'Notification sent to '.$assignedName.'.',
+        ]);
+    }
+
+    /**
+     * Get users in the requesting user's office (for admin reassign dropdown).
+     */
+    public function officeUsers(Request $request): JsonResponse
+    {
+        $user = $request->user();
+        $officeId = $user->office_id;
+
+        if (! $officeId) {
+            return response()->json([]);
+        }
+
+        $users = User::where('office_id', $officeId)
+            ->where('is_active', true)
+            ->select('id', 'first_name', 'last_name', 'username', 'position', 'office_id', 'division_id')
+            ->orderBy('first_name')
+            ->get()
+            ->map(fn ($u) => [
+                'id' => $u->id,
+                'name' => $u->full_name,
+                'position' => $u->position,
+                'division_id' => $u->division_id,
+            ]);
+
+        return response()->json($users);
+    }
+
     public function addAttachment(Request $request, Document $document): JsonResponse
     {
         $request->validate([
             'file' => 'required|file',
+            'type' => 'nullable|string|max:50',
         ]);
 
         $file = $request->file('file');
@@ -700,6 +950,7 @@ class DocumentController extends Controller
             'original_name' => $file->getClientOriginalName(),
             'mime_type' => $file->getMimeType() ?? 'application/octet-stream',
             'size' => $file->getSize(),
+            'type' => $request->input('type', 'attachment'),
         ]);
 
         DocumentHistory::record($document, DocumentHistory::EDITED, $request->user(), [
@@ -713,7 +964,7 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function deleteAttachment(Request $request, \App\Models\DocumentAttachment $attachment): JsonResponse
+    public function deleteAttachment(Request $request, DocumentAttachment $attachment): JsonResponse
     {
         $document = $attachment->document;
         $disk = $attachment->disk ?? 'shared_documents';
@@ -739,16 +990,16 @@ class DocumentController extends Controller
     {
         $user = $request->user();
 
-        $count = \App\Models\DocumentAcknowledgement::query()
+        $count = DocumentAcknowledgement::query()
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
-                  ->orWhere('assigned_name', $user->full_name);
+                    ->orWhere('assigned_name', $user->full_name);
             })
             ->whereNull('acknowledged_at')
             ->count();
 
         return response()->json([
-            'count' => $count
+            'count' => $count,
         ]);
     }
 
@@ -756,11 +1007,11 @@ class DocumentController extends Controller
     {
         $user = $request->user();
 
-        /** @var \App\Models\DocumentAcknowledgement|null $acknowledgement */
+        /** @var DocumentAcknowledgement|null $acknowledgement */
         $acknowledgement = $document->acknowledgements()
             ->where(function ($q) use ($user) {
                 $q->where('user_id', $user->id)
-                  ->orWhere('assigned_name', $user->full_name);
+                    ->orWhere('assigned_name', $user->full_name);
             })
             ->whereNull('acknowledged_at')
             ->first();
@@ -768,19 +1019,23 @@ class DocumentController extends Controller
         if ($acknowledgement) {
             $acknowledgement->update([
                 'acknowledged_at' => now(),
-                'remarks' => 'Acknowledged/Opened by recipient.'
+                'remarks' => 'Acknowledged/Opened by recipient.',
             ]);
 
-            DocumentHistory::record($document, 'ACKNOWLEDGED', $user, [
-                'remarks' => 'Document opened and acknowledged by recipient.',
-                'status_before' => $document->status,
-                'status_after' => $document->status,
+            $statusBefore = $document->status;
+            $newStatus = $document->status;
+            if (in_array(strtolower($document->status), ['released', 'outgoing'])) {
+                $newStatus = 'pending';
+            }
+
+            $document->update([
+                'status' => $newStatus,
             ]);
         }
 
         return response()->json([
             'message' => 'Document acknowledged successfully.',
-            'document' => $document->fresh()
+            'document' => $document->fresh(),
         ]);
     }
 }

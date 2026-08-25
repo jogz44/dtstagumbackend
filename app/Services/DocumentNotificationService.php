@@ -82,8 +82,14 @@ class DocumentNotificationService
      */
     public function notifyPending(Document $document, User $responsibleUser): ?Notification
     {
-        if (in_array(strtolower((string) $document->status), self::NON_ACTIONABLE_STATUSES, true)) {
-            return null;
+        $status = strtolower((string) $document->status);
+        if (in_array($status, self::NON_ACTIONABLE_STATUSES, true)) {
+            $isAssigned = $document->assigned_user === $responsibleUser->full_name ||
+                          $document->assigned_user === $responsibleUser->id ||
+                          $document->assigned_user === $responsibleUser->username;
+            if (! ($status === 'released' && $isAssigned)) {
+                return null;
+            }
         }
 
         $key = "doc:{$document->id}:pending:user:{$responsibleUser->id}";

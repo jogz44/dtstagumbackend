@@ -115,6 +115,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [ReportController::class, 'index']);
         Route::get('/documents', [DocumentController::class, 'index']);
+        Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
         Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
         Route::post('/documents', [DocumentController::class, 'store']);
@@ -135,6 +136,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/document-types', [DocumentController::class, 'getDocumentTypes']);
         Route::post('/documents/{document}/attachments', [DocumentController::class, 'addAttachment']);
         Route::delete('/attachments/{attachment}', [DocumentController::class, 'deleteAttachment']);
+        Route::post('/documents/{document}/reassign', [DocumentController::class, 'reassign']);
+        Route::post('/documents/{document}/force-notify', [DocumentController::class, 'forceNotify']);
+        Route::get('/office-users', [DocumentController::class, 'officeUsers']);
         Route::get('/documents/{document}/messages', [DocumentController::class, 'getMessages']);
         Route::post('/documents/{document}/messages', [DocumentController::class, 'sendMessage']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
