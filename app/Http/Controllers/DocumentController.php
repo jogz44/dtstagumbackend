@@ -159,7 +159,7 @@ class DocumentController extends Controller
 
             // 1. Log in canonical document transaction history.
             $historyType = DocumentHistory::REGISTERED;
-            $historyRemarks = 'Document registered.';
+            $historyRemarks = $document->remarks ?: 'Document registered.';
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'remarks' => $historyRemarks,
@@ -481,7 +481,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, 'archived', $request->user(), [
-            'remarks' => 'Document archived.',
+            'remarks' => $request->input('remarks') ?: 'Document archived.',
             'status_before' => $statusBefore,
             'status_after' => 'archived',
         ]);
@@ -616,6 +616,10 @@ class DocumentController extends Controller
 
     public function retrieve(Request $request, Document $document): JsonResponse
     {
+        $validated = $request->validate([
+            'remarks' => 'nullable|string',
+        ]);
+
         $statusBefore = $document->status;
 
         $document->update([
@@ -623,7 +627,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, 'RETRIEVED', $request->user(), [
-            'remarks' => 'Document retrieved from completed.',
+            'remarks' => isset($validated['remarks']) && trim($validated['remarks']) !== '' ? trim($validated['remarks']) : 'Document retrieved from completed.',
             'status_before' => $statusBefore,
             'status_after' => 'registered',
         ]);
