@@ -223,6 +223,43 @@ class DocumentController extends Controller
                 ]);
             }
 
+            // Sync phone-scanned pages if a session is provided
+            if ($request->filled('scan_session_token')) {
+                $scanPages = \App\Models\ScanPage::where('session_token', $request->scan_session_token)
+                    ->orderBy('page_number')
+                    ->get();
+
+                $defaultDisk = config('filesystems.default', 'local');
+
+                foreach ($scanPages as $page) {
+                    if (Storage::disk($defaultDisk)->exists($page->file_path)) {
+                        $originalName = basename($page->file_path);
+                        $mimeType = Storage::disk($defaultDisk)->mimeType($page->file_path) ?? 'image/png';
+                        $size = Storage::disk($defaultDisk)->size($page->file_path);
+
+                        // Copy from temp scanner directory to permanent document disk location
+                        $newPath = "documents/{$document->id}/{$originalName}";
+                        Storage::disk($disk)->writeStream(
+                            $newPath,
+                            Storage::disk($defaultDisk)->readStream($page->file_path)
+                        );
+
+                        $document->attachments()->create([
+                            'disk' => $disk,
+                            'path' => $newPath,
+                            'original_name' => "scanned_page_{$page->page_number}.png",
+                            'mime_type' => $mimeType,
+                            'size' => $size,
+                            'type' => 'document',
+                        ]);
+                    }
+                }
+
+                // Cleanup temporary storage and session
+                Storage::disk($defaultDisk)->deleteDirectory("scan-sessions/{$request->scan_session_token}");
+                \App\Models\ScanSession::where('token', $request->scan_session_token)->delete();
+            }
+
             // 1. Log in canonical document transaction history.
             $historyType = ($newStatus === 'released') ? DocumentHistory::RELEASED : DocumentHistory::REGISTERED;
             $historyRemarks = $document->remarks ?: (($newStatus === 'released') ? 'Document physically released.' : 'Document registered.');

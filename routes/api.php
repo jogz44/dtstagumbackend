@@ -8,6 +8,7 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\ScanSessionController;
 use App\Http\Controllers\RoleController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
@@ -215,3 +216,16 @@ Route::get('/test-pmis', function () {
         ], 500);
     }
 });
+
+/*
+ * ──────────────────────────────────────────────────────────────────────────────
+ *  SCAN SESSION ROUTES  (Public – no authentication required)
+ *  These endpoints are polled by the desktop and called by the mobile scanner.
+ * ──────────────────────────────────────────────────────────────────────────────
+ */
+Route::post('/scan-session', [ScanSessionController::class, 'store']);
+Route::get('/scan-session/{token}', [ScanSessionController::class, 'show']);
+Route::put('/scan-session/{token}/status', [ScanSessionController::class, 'updateStatus']);
+Route::post('/scan-session/{token}/pages', [ScanSessionController::class, 'storePage']);
+Route::get('/scan-session/{token}/pages/{pageId}/view', [ScanSessionController::class, 'viewPage'])->name('scan-pages.view');
+Route::get('/scan-session/{token}/download', [ScanSessionController::class, 'download']);
