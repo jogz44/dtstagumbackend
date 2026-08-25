@@ -102,7 +102,7 @@ class Document extends Model
 
                 // Or assigned to their office
                 if (!empty($officeNames)) {
-                    $q->whereIn('office_assignment', $officeNames)
+                    $q->orWhereIn('office_assignment', $officeNames)
                       ->orWhereHas('histories', function ($q3) use ($officeNames) {
                           $q3->whereIn('to_office', $officeNames);
                       });

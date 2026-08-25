@@ -628,7 +628,7 @@ class DocumentController extends Controller
 
         // Find the last user who assigned, transferred, or created this document before the current user
         $lastHistory = DocumentHistory::where('document_id', $document->id)
-            ->whereIn('action', ['ASSIGNED', 'TRANSFERRED', 'FORWARDED', 'RELEASED', 'REGISTERED'])
+            ->whereIn('action', ['ASSIGNED', 'TRANSFERRED', 'FORWARDED', 'RELEASED', 'REGISTERED', 'RETURNED'])
             ->where('performed_by', '!=', $request->user()->id)
             ->latest()
             ->first();
