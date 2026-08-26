@@ -6,6 +6,7 @@ use App\Models\Division;
 use App\Models\Document;
 use App\Models\Office;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -14,7 +15,68 @@ class ReportController extends Controller
 {
     public function index(Request $request): JsonResponse
     {
-        $totalDocuments = Document::count();
+        $range = strtolower((string) ($request->query('range', 'this_month')));
+        $from = $request->query('from');
+        $to = $request->query('to');
+        $selectedDivision = $request->query('division');
+
+        $baseQuery = Document::query();
+
+        // Map the requested preset date range to a date window.
+        if (!empty($from) || !empty($to) || $range === 'custom') {
+            $dateFrom = $from ? Carbon::parse($from)->startOfDay() : null;
+            $dateTo = $to ? Carbon::parse($to)->endOfDay() : null;
+
+            if ($dateFrom) {
+                $baseQuery->whereDate('created_at', '>=', $dateFrom->toDateString());
+            }
+
+            if ($dateTo) {
+                $baseQuery->whereDate('created_at', '<=', $dateTo->toDateString());
+            }
+        } else {
+            $today = Carbon::today();
+            $start = null;
+            $end = null;
+
+            switch ($range) {
+                case 'today':
+                    $start = $today->copy()->startOfDay();
+                    $end = $today->copy()->endOfDay();
+                    break;
+
+                case 'last_7_days':
+                    $start = $today->copy()->subDays(6)->startOfDay();
+                    $end = $today->copy()->endOfDay();
+                    break;
+
+                case 'last_30_days':
+                    $start = $today->copy()->subDays(29)->startOfDay();
+                    $end = $today->copy()->endOfDay();
+                    break;
+
+                case 'this_year':
+                    $start = $today->copy()->startOfYear();
+                    $end = $today->copy()->endOfYear();
+                    break;
+
+                case 'this_month':
+                default:
+                    $start = $today->copy()->startOfMonth();
+                    $end = $today->copy()->endOfMonth();
+                    break;
+            }
+
+            if ($start && $end) {
+                $baseQuery->whereBetween('created_at', [$start, $end]);
+            }
+        }
+
+        if (!empty($selectedDivision) && strtolower((string) $selectedDivision) !== 'all division') {
+            $baseQuery->where('division_assignment', $selectedDivision);
+        }
+
+        $totalDocuments = (clone $baseQuery)->count();
         $activeUsersCount = User::where('is_active', true)->count();
         $totalOffices = Office::count();
         $totalDivisions = Division::count();
@@ -46,9 +108,21 @@ class ReportController extends Controller
             ],
         ];
 
-        $completedCount = Document::where('status', 'Completed')->orWhere('status', 'RELEASED')->count();
-        $inProgressCount = Document::where('status', 'In Progress')->orWhere('status', 'IN_TRANSIT')->count();
-        $pendingCount = Document::where('status', 'Pending')->orWhere('status', 'RECEIVED')->count();
+        $completedCount = (clone $baseQuery)->where(function ($query) {
+            $query->where('status', 'Completed')
+                ->orWhere('status', 'RELEASED');
+        })->count();
+
+        $inProgressCount = (clone $baseQuery)->where(function ($query) {
+            $query->where('status', 'In Progress')
+                ->orWhere('status', 'IN_TRANSIT');
+        })->count();
+
+        $pendingCount = (clone $baseQuery)->where(function ($query) {
+            $query->where('status', 'Pending')
+                ->orWhere('status', 'RECEIVED');
+        })->count();
+
         $otherCount = max(0, $totalDocuments - ($completedCount + $inProgressCount + $pendingCount));
 
         $breakdownPanels = [
@@ -82,7 +156,8 @@ class ReportController extends Controller
             })
             ->toArray();
 
-        $recentDocuments = Document::latest()
+        $recentDocuments = (clone $baseQuery)
+            ->latest()
             ->limit(10)
             ->get()
             ->map(function ($doc) {
