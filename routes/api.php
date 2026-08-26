@@ -117,9 +117,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [ReportController::class, 'index']);
-        Route::get('/reports/dashboard', [ReportController::class, 'index']);
-        Route::get('/reports/offices', [ReportController::class, 'offices']);
-        Route::get('/reports/divisions', [ReportController::class, 'divisions']);
         Route::get('/documents', [DocumentController::class, 'index']);
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
         Route::get('/documents/{document}', [DocumentController::class, 'show']);
