@@ -2,169 +2,182 @@
 
 namespace App\Http\Controllers;
 
-use App\Services\ReportService;
+use App\Models\Division;
+use App\Models\Document;
+use App\Models\Office;
+use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\DB;
 
 class ReportController extends Controller
 {
-    public function __construct(
-        protected ReportService $reportService,
-    ) {}
-
     public function index(Request $request): JsonResponse
     {
-        $filters = $request->only([
-            'from',
-            'to',
-            'office_id',
-            'division_id',
-            'priority',
-            'status',
-            'search',
-        ]);
+        $range = strtolower((string) ($request->query('range', 'this_month')));
+        $from = $request->query('from');
+        $to = $request->query('to');
+        $selectedDivision = $request->query('division');
 
-        try {
-            $report = $this->reportService->getDashboardReport($filters, $request->user());
+        $baseQuery = Document::query();
 
-            // Backwards compatibility mappings for legacy UI components if accessed directly
-            $legacyKpiCards = [
-                [
-                    'label' => 'Total Documents',
-                    'value' => (string) ($report['kpis']['total_documents']['value'] ?? 0),
-                    'note' => $report['kpis']['total_documents']['comparison_label'] ?? 'System wide registered documents',
-                    'indicator' => 'bg-green',
-                ],
-                [
-                    'label' => 'Active Users',
-                    'value' => (string) ($report['kpis']['active_users']['value'] ?? 0),
-                    'note' => $report['kpis']['active_users']['comparison_label'] ?? 'Across active offices and divisions',
-                    'indicator' => 'bg-blue',
-                ],
-                [
-                    'label' => 'Total Offices',
-                    'value' => (string) ($report['kpis']['total_offices']['value'] ?? 0),
-                    'note' => 'Active organizational offices',
-                    'indicator' => 'bg-amber',
-                ],
-                [
-                    'label' => 'Total Divisions',
-                    'value' => (string) ($report['kpis']['total_divisions']['value'] ?? 0),
-                    'note' => 'Active operational divisions',
-                    'indicator' => 'bg-purple',
-                ],
-            ];
+        // Map the requested preset date range to a date window.
+        if (!empty($from) || !empty($to) || $range === 'custom') {
+            $dateFrom = $from ? Carbon::parse($from)->startOfDay() : null;
+            $dateTo = $to ? Carbon::parse($to)->endOfDay() : null;
 
-            $legacyBreakdownPanels = [
-                [
-                    'key' => 'document-status',
-                    'category' => 'Documents',
-                    'title' => 'Status Breakdown',
-                    'total' => $report['meta']['reconciliation']['documents'] ?? 0,
-                    'totalLabel' => 'Total Docs',
-                    'items' => array_map(function ($item) {
-                        return [
-                            'label' => $item['status'],
-                            'value' => $item['count'],
-                            'percent' => $item['percentage'] . '%',
-                            'colorHex' => $item['color'],
-                        ];
-                    }, $report['status_breakdown'] ?? []),
-                ],
-            ];
+            if ($dateFrom) {
+                $baseQuery->whereDate('created_at', '>=', $dateFrom->toDateString());
+            }
 
-            $responsePayload = array_merge($report, [
-                'kpiCards' => $legacyKpiCards,
-                'breakdownPanels' => $legacyBreakdownPanels,
-                'divisionBlocks' => array_map(function ($item) {
-                    return [
-                        'title' => $item['division_name'],
-                        'total' => $item['count'],
-                        'color' => 'bg-green',
-                        'items' => [
-                            ['label' => 'Documents', 'value' => $item['count']],
-                        ],
-                    ];
-                }, array_slice($report['documents_by_division']['items'] ?? [], 0, 6)),
-                'documents' => array_map(function ($doc) {
-                    return [
-                        'id' => $doc['id'],
-                        'trackingId' => $doc['tracking_id'],
-                        'title' => $doc['title'],
-                        'division' => $doc['division'],
-                        'priority' => $doc['priority'],
-                        'status' => $doc['status'],
-                        'received' => $doc['sent_date'],
-                    ];
-                }, $report['documents_sent']['data'] ?? []),
-            ]);
+            if ($dateTo) {
+                $baseQuery->whereDate('created_at', '<=', $dateTo->toDateString());
+            }
+        } else {
+            $today = Carbon::today();
+            $start = null;
+            $end = null;
 
-            return response()->json($responsePayload);
-        } catch (ValidationException $e) {
-            return response()->json([
-                'message' => 'The given data was invalid.',
-                'errors' => $e->errors(),
-            ], 422);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'message' => 'Unable to load report data.',
-                'error' => $e->getMessage(),
-            ], 500);
+            switch ($range) {
+                case 'today':
+                    $start = $today->copy()->startOfDay();
+                    $end = $today->copy()->endOfDay();
+                    break;
+
+                case 'last_7_days':
+                    $start = $today->copy()->subDays(6)->startOfDay();
+                    $end = $today->copy()->endOfDay();
+                    break;
+
+                case 'last_30_days':
+                    $start = $today->copy()->subDays(29)->startOfDay();
+                    $end = $today->copy()->endOfDay();
+                    break;
+
+                case 'this_year':
+                    $start = $today->copy()->startOfYear();
+                    $end = $today->copy()->endOfYear();
+                    break;
+
+                case 'this_month':
+                default:
+                    $start = $today->copy()->startOfMonth();
+                    $end = $today->copy()->endOfMonth();
+                    break;
+            }
+
+            if ($start && $end) {
+                $baseQuery->whereBetween('created_at', [$start, $end]);
+            }
         }
-    }
 
-    public function offices(Request $request): JsonResponse
-    {
-        $filters = $request->only([
-            'from',
-            'to',
-            'office_id',
-            'division_id',
-            'priority',
-            'status',
-            'search',
-            'sort',
-            'direction',
-            'page',
-            'per_page',
-        ]);
-
-        try {
-            $data = $this->reportService->getOfficesReport($filters, $request->user());
-            return response()->json($data);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'message' => 'Unable to load offices report data.',
-                'error' => $e->getMessage(),
-            ], 500);
+        if (!empty($selectedDivision) && strtolower((string) $selectedDivision) !== 'all division') {
+            $baseQuery->where('division_assignment', $selectedDivision);
         }
-    }
 
-    public function divisions(Request $request): JsonResponse
-    {
-        $filters = $request->only([
-            'from',
-            'to',
-            'office_id',
-            'division_id',
-            'priority',
-            'status',
-            'search',
-            'sort',
-            'direction',
-            'page',
-            'per_page',
+        $totalDocuments = (clone $baseQuery)->count();
+        $activeUsersCount = User::where('is_active', true)->count();
+        $totalOffices = Office::count();
+        $totalDivisions = Division::count();
+
+        $kpiCards = [
+            [
+                'label' => 'Total Documents',
+                'value' => (string) $totalDocuments,
+                'note' => 'System wide registered documents',
+                'indicator' => 'bg-green',
+            ],
+            [
+                'label' => 'Active Users',
+                'value' => (string) $activeUsersCount,
+                'note' => "Across {$totalOffices} offices and {$totalDivisions} divisions",
+                'indicator' => 'bg-blue',
+            ],
+            [
+                'label' => 'Total Offices',
+                'value' => (string) $totalOffices,
+                'note' => 'Active organizational offices',
+                'indicator' => 'bg-amber',
+            ],
+            [
+                'label' => 'Total Divisions',
+                'value' => (string) $totalDivisions,
+                'note' => 'Active operational divisions',
+                'indicator' => 'bg-purple',
+            ],
+        ];
+
+        $completedCount = (clone $baseQuery)->where(function ($query) {
+            $query->where('status', 'Completed')
+                ->orWhere('status', 'RELEASED');
+        })->count();
+
+        $inProgressCount = (clone $baseQuery)->where(function ($query) {
+            $query->where('status', 'In Progress')
+                ->orWhere('status', 'IN_TRANSIT');
+        })->count();
+
+        $pendingCount = (clone $baseQuery)->where(function ($query) {
+            $query->where('status', 'Pending')
+                ->orWhere('status', 'RECEIVED');
+        })->count();
+
+        $otherCount = max(0, $totalDocuments - ($completedCount + $inProgressCount + $pendingCount));
+
+        $breakdownPanels = [
+            [
+                'key' => 'document-status',
+                'category' => 'Documents',
+                'title' => 'Status Breakdown',
+                'total' => $totalDocuments,
+                'totalLabel' => 'Total Docs',
+                'items' => [
+                    ['label' => 'Completed', 'value' => $completedCount, 'colorHex' => '#4caf50'],
+                    ['label' => 'In Progress', 'value' => $inProgressCount, 'colorHex' => '#2196f3'],
+                    ['label' => 'Pending', 'value' => $pendingCount, 'colorHex' => '#ff9800'],
+                    ['label' => 'Others', 'value' => $otherCount, 'colorHex' => '#9e9e9e'],
+                ],
+            ],
+        ];
+
+        $divisionBlocks = Division::withCount('users')
+            ->limit(6)
+            ->get()
+            ->map(function ($division) {
+                return [
+                    'title' => $division->name,
+                    'total' => $division->users_count,
+                    'color' => 'bg-green',
+                    'items' => [
+                        ['label' => 'Users', 'value' => $division->users_count],
+                    ],
+                ];
+            })
+            ->toArray();
+
+        $recentDocuments = (clone $baseQuery)
+            ->latest()
+            ->limit(10)
+            ->get()
+            ->map(function ($doc) {
+                return [
+                    'id' => $doc->id,
+                    'trackingId' => $doc->tracking_number,
+                    'title' => $doc->description ?? $doc->document_type ?? 'Untitled Document',
+                    'division' => $doc->division_assignment ?? 'Unassigned',
+                    'priority' => $doc->priority_level ?? 'Normal',
+                    'status' => $doc->status ?? 'Pending',
+                    'received' => $doc->created_at?->toIso8601String(),
+                ];
+            })
+            ->toArray();
+
+        return response()->json([
+            'kpiCards' => $kpiCards,
+            'breakdownPanels' => $breakdownPanels,
+            'divisionBlocks' => $divisionBlocks,
+            'documents' => $recentDocuments,
         ]);
-
-        try {
-            $data = $this->reportService->getDivisionsReport($filters, $request->user());
-            return response()->json($data);
-        } catch (\Throwable $e) {
-            return response()->json([
-                'message' => 'Unable to load divisions report data.',
-                'error' => $e->getMessage(),
-            ], 500);
-        }
     }
 }
