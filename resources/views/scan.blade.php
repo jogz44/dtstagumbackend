@@ -156,7 +156,9 @@
       position: relative; overflow: hidden; padding: 8px;
     }
     .crop-canvas-wrap canvas {
-      max-width: 100%; max-height: 100%;
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
       touch-action: none;
     }
 
@@ -188,7 +190,9 @@
       position: relative; overflow: hidden; padding: 8px;
     }
     .preview-canvas-wrap canvas {
-      max-width: 100%; max-height: 100%;
+      display: block;
+      max-width: 100%;
+      max-height: 100%;
     }
     .adjust-crop-overlay {
       position: absolute; bottom: 50%; left: 50%;
@@ -479,23 +483,39 @@
     function captureImage() {
       if (!cameraStream) return;
 
-      const track = cameraStream.getVideoTracks()[0];
-      const settings = track.getSettings();
-      const w = settings.width || video.videoWidth;
-      const h = settings.height || video.videoHeight;
+      const w = video.videoWidth;
+      const h = video.videoHeight;
+
+      if (!w || !h) {
+        console.error('Video dimensions not available');
+        return;
+      }
 
       const canvas = document.createElement('canvas');
-      canvas.width = w;
-      canvas.height = h;
       const ctx = canvas.getContext('2d');
-      ctx.drawImage(video, 0, 0, w, h);
 
-      // Store as image
+      // On Android, the raw camera stream is ALWAYS landscape (w > h) even when
+      // the phone is held portrait. We must always rotate if stream is landscape.
+      if (w > h) {
+        // Portrait canvas: swap w/h
+        canvas.width = h;
+        canvas.height = w;
+        // Rotate 90° clockwise around canvas centre
+        ctx.translate(canvas.width / 2, canvas.height / 2);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(video, -w / 2, -h / 2, w, h);
+      } else {
+        canvas.width = w;
+        canvas.height = h;
+        ctx.drawImage(video, 0, 0, w, h);
+      }
+
+      // Show crop screen first, then size canvas after layout
       const img = new Image();
       img.onload = () => {
         capturedImage = img;
-        initCropScreen(img);
         showScreen('crop');
+        requestAnimationFrame(() => initCropScreen(img));
       };
       img.src = canvas.toDataURL('image/jpeg', 0.95);
     }
@@ -511,32 +531,30 @@
     let cropOffsetY = 0;
 
     function initCropScreen(img) {
-      // Size canvas to fit the container
+      // Read actual available space from the rendered wrap element
       const wrap = document.getElementById('cropCanvasWrap');
-      const maxW = wrap.clientWidth - 16;
-      const maxH = wrap.clientHeight - 16;
+      const maxW = wrap.clientWidth  - 8;
+      const maxH = wrap.clientHeight - 8;
 
-      let cw = img.naturalWidth;
-      let ch = img.naturalHeight;
+      const iw = img.naturalWidth;
+      const ih = img.naturalHeight;
 
-      // Scale to fit
-      const ratio = Math.min(maxW / cw, maxH / ch, 1);
-      cw = Math.round(cw * ratio);
-      ch = Math.round(ch * ratio);
+      // Scale image to fill as much of the crop area as possible
+      const ratio = Math.min(maxW / iw, maxH / ih);
+      const cw = Math.round(iw * ratio);
+      const ch = Math.round(ih * ratio);
 
-      cropCanvas.width = cw;
+      cropCanvas.width  = cw;
       cropCanvas.height = ch;
-      cropScale = img.naturalWidth / cw;
-      cropOffsetX = 0;
-      cropOffsetY = 0;
+      cropScale = iw / cw;
 
-      // Default corners: 10% inset from edges
-      const margin = 0.10;
+      // Default corners: 8% inset from edges
+      const margin = 0.08;
       cropCorners = [
-        { x: cw * margin,      y: ch * margin },       // top-left
+        { x: cw * margin,       y: ch * margin },       // top-left
         { x: cw * (1 - margin), y: ch * margin },       // top-right
         { x: cw * (1 - margin), y: ch * (1 - margin) }, // bottom-right
-        { x: cw * margin,      y: ch * (1 - margin) },  // bottom-left
+        { x: cw * margin,       y: ch * (1 - margin) }, // bottom-left
       ];
 
       drawCropCanvas(img);
@@ -671,8 +689,16 @@
           const leftLen = Math.hypot(src[3].x - src[0].x, src[3].y - src[0].y);
           const rightLen = Math.hypot(src[2].x - src[1].x, src[2].y - src[1].y);
 
-          const outW = Math.round(Math.max(topLen, botLen));
-          const outH = Math.round(Math.max(leftLen, rightLen));
+          let outW = Math.round(Math.max(topLen, botLen));
+          let outH = Math.round(Math.max(leftLen, rightLen));
+
+          // Limit resolution to 1200px max to ensure stable upload sizes (150KB-300KB JPEGs)
+          const maxDimension = 1200;
+          if (outW > maxDimension || outH > maxDimension) {
+            const scale = Math.min(maxDimension / outW, maxDimension / outH);
+            outW = Math.round(outW * scale);
+            outH = Math.round(outH * scale);
+          }
 
           // Destination rectangle corners (clockwise from top-left)
           const dst = [
@@ -682,8 +708,8 @@
             { x: 0, y: outH },
           ];
 
-          // Compute homography matrix using 4 point correspondences
-          const H = computeHomography(src, dst);
+          // Compute INVERSE homography (dst→src) so each output pixel maps back to the correct source pixel
+          const H = computeHomography(dst, src);
 
           // Create output canvas
           const outCanvas = document.createElement('canvas');
@@ -805,38 +831,53 @@
     function showPreviewScreen(warpedCanvas) {
       croppedCanvas = warpedCanvas;
 
-      const previewCanvas = document.getElementById('previewCanvas');
-      const ctx = previewCanvas.getContext('2d');
-
-      // Scale to fit
-      const wrap = document.getElementById('previewCanvasWrap');
-      const maxW = wrap.clientWidth - 16;
-      const maxH = wrap.clientHeight - 60; // leave room for overlay button
-      const ratio = Math.min(maxW / warpedCanvas.width, maxH / warpedCanvas.height, 1);
-      previewCanvas.width = Math.round(warpedCanvas.width * ratio);
-      previewCanvas.height = Math.round(warpedCanvas.height * ratio);
-
-      ctx.drawImage(warpedCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
-
-      // Apply B&W if enabled
-      if (bwEnabled) {
-        applyThresholdFilter(ctx, previewCanvas.width, previewCanvas.height);
-      }
-
+      // Show the screen first so the wrap has real layout dimensions
       showScreen('preview');
+
+      // Then size the canvas after the browser has laid out the element
+      requestAnimationFrame(() => {
+        const previewCanvas = document.getElementById('previewCanvas');
+        const ctx = previewCanvas.getContext('2d');
+        const wrap = document.getElementById('previewCanvasWrap');
+
+        const maxW = wrap.clientWidth  - 8;
+        const maxH = wrap.clientHeight - 8;
+
+        const ratio = Math.min(maxW / warpedCanvas.width, maxH / warpedCanvas.height);
+        previewCanvas.width  = Math.round(warpedCanvas.width  * ratio);
+        previewCanvas.height = Math.round(warpedCanvas.height * ratio);
+
+        ctx.drawImage(warpedCanvas, 0, 0, previewCanvas.width, previewCanvas.height);
+
+        // Apply B&W if enabled
+        if (bwEnabled) {
+          applyThresholdFilter(ctx, previewCanvas.width, previewCanvas.height);
+        }
+      });
     }
 
     /**
-     * High-contrast B&W threshold filter.
+     * Soft document scanner filter: whitens paper, darkens text, keeps edges smooth.
      */
     function applyThresholdFilter(ctx, w, h) {
       const imgData = ctx.getImageData(0, 0, w, h);
       const d = imgData.data;
-      const threshold = 128;
+
+      const low = 95;   // Any grey value below this becomes black (0)
+      const high = 190; // Any grey value above this becomes white (255)
 
       for (let i = 0; i < d.length; i += 4) {
-        const gray = 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
-        const v = gray >= threshold ? 255 : 0;
+        const gray = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+        
+        let v;
+        if (gray <= low) {
+          v = 0;
+        } else if (gray >= high) {
+          v = 255;
+        } else {
+          v = Math.round(((gray - low) / (high - low)) * 255);
+        }
+        
         d[i] = d[i + 1] = d[i + 2] = v;
       }
 
@@ -865,6 +906,12 @@
       showLoading('Uploading page...');
 
       try {
+        // Apply B&W filter on the croppedCanvas itself before uploading if enabled
+        if (bwEnabled) {
+          const croppedCtx = croppedCanvas.getContext('2d');
+          applyThresholdFilter(croppedCtx, croppedCanvas.width, croppedCanvas.height);
+        }
+
         // Convert canvas to blob
         const blob = await new Promise(resolve =>
           croppedCanvas.toBlob(resolve, 'image/jpeg', 0.92)

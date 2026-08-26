@@ -847,6 +847,20 @@ class DocumentController extends Controller
         ], 'inline');
     }
 
+    public function showAttachmentPublic(DocumentAttachment $attachment)
+    {
+        $disk = $attachment->disk ?? 'shared_documents';
+        /** @var FilesystemAdapter $storage */
+        $storage = Storage::disk($disk);
+        if (! $storage->exists($attachment->path)) {
+            abort(404, 'File not found');
+        }
+
+        return $storage->response($attachment->path, $attachment->original_name, [
+            'Content-Type' => $attachment->mime_type,
+        ], 'inline');
+    }
+
     public function retrieve(Request $request, Document $document): JsonResponse
     {
         $validated = $request->validate([
@@ -1065,6 +1079,63 @@ class DocumentController extends Controller
         return response()->json([
             'message' => 'Attachment added successfully.',
             'attachment' => $attachment,
+            'document' => $document->load('attachments'),
+        ]);
+    }
+
+    public function syncScanSession(Request $request, Document $document): JsonResponse
+    {
+        $request->validate([
+            'scan_session_token' => 'required|string',
+        ]);
+
+        $scanPages = \App\Models\ScanPage::where('session_token', $request->scan_session_token)
+            ->orderBy('page_number')
+            ->get();
+
+        if ($scanPages->isEmpty()) {
+            return response()->json([
+                'message' => 'No scanned pages found for this session.',
+            ], 400);
+        }
+
+        $disk = config('filesystems.document_disk', 'shared_documents');
+        $defaultDisk = config('filesystems.default', 'local');
+        $addedCount = 0;
+
+        foreach ($scanPages as $page) {
+            if (Storage::disk($defaultDisk)->exists($page->file_path)) {
+                $originalName = basename($page->file_path);
+                $mimeType = Storage::disk($defaultDisk)->mimeType($page->file_path) ?? 'image/png';
+                $size = Storage::disk($defaultDisk)->size($page->file_path);
+
+                // Copy from temp scanner directory to permanent document disk location
+                $newPath = "documents/{$document->id}/{$originalName}";
+                Storage::disk($disk)->writeStream(
+                    $newPath,
+                    Storage::disk($defaultDisk)->readStream($page->file_path)
+                );
+
+                $document->attachments()->create([
+                    'disk' => $disk,
+                    'path' => $newPath,
+                    'original_name' => "scanned_page_{$page->page_number}.png",
+                    'mime_type' => $mimeType,
+                    'size' => $size,
+                    'type' => 'scanned_photo',
+                ]);
+                $addedCount++;
+            }
+        }
+
+        if ($addedCount > 0) {
+            DocumentHistory::record($document, DocumentHistory::EDITED, $request->user(), [
+                'remarks' => "Added {$addedCount} phone-scanned pages.",
+            ]);
+        }
+
+        return response()->json([
+            'message' => "Successfully synced {$addedCount} scanned pages.",
             'document' => $document->load('attachments'),
         ]);
     }

@@ -56,6 +56,8 @@ Route::post('/login', function (Request $request) {
     ], 401);
 });
 
+Route::get('/attachments/{attachment}/public', [DocumentController::class, 'showAttachmentPublic']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
         $user = $request->user()->load(['roles', 'office', 'division', 'permissions']);
@@ -139,6 +141,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve']);
         Route::get('/document-types', [DocumentController::class, 'getDocumentTypes']);
         Route::post('/documents/{document}/attachments', [DocumentController::class, 'addAttachment']);
+        Route::post('/documents/{document}/sync-scan', [DocumentController::class, 'syncScanSession']);
         Route::delete('/attachments/{attachment}', [DocumentController::class, 'deleteAttachment']);
         Route::post('/documents/{document}/reassign', [DocumentController::class, 'reassign']);
         Route::post('/documents/{document}/force-notify', [DocumentController::class, 'forceNotify']);

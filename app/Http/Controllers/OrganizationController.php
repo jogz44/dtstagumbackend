@@ -48,16 +48,16 @@ class OrganizationController extends Controller
             // Synchronize the offices and divisions to the local lgudts database
             foreach ($pmisRecords as $record) {
                 $officeName = $record->office ? trim((string) $record->office) : null;
-                $divisionName = $record->divisions ? trim((string) $record->divisions) : null;
+                $divisionName = (isset($record->division) ? $record->division : ($record->divisions ?? null)) ? trim((string) (isset($record->division) ? $record->division : $record->divisions)) : null;
 
                 if ($officeName) {
                     $officeCode = Str::upper(Str::limit(Str::slug($officeName), 40, '')).'-'.substr(md5($officeName), 0, 5);
 
-                    $office = Office::withTrashed()->updateOrCreate(
+                     $office = Office::withTrashed()->updateOrCreate(
                         ['name' => $officeName],
                         [
                             'code' => $officeCode,
-                            'short_name' => $officeName,
+                            'short_name' => substr($officeName, 0, 100),
                             'is_active' => true,
                             'deleted_at' => null,
                         ]
@@ -73,7 +73,7 @@ class OrganizationController extends Controller
                             ],
                             [
                                 'code' => $divisionCode,
-                                'short_name' => $divisionName,
+                                'short_name' => substr($divisionName, 0, 100),
                                 'is_active' => true,
                                 'deleted_at' => null,
                             ]
@@ -137,8 +137,13 @@ class OrganizationController extends Controller
             try {
                 $pmisQuery = DB::connection('pmis')
                     ->table('vwActive')
-                    ->where('office', $officeName)
-                    ->select('Name1')
+                    ->where('office', $officeName);
+
+                if ($divisionName) {
+                    $pmisQuery->where('division', $divisionName);
+                }
+
+                $pmisQuery->select('Name1')
                     ->distinct()
                     ->orderBy('Name1');
 

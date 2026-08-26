@@ -12,5 +12,9 @@ Route::get('/', function () {
  * The token is passed as a query parameter and used throughout.
  */
 Route::get('/scan', function () {
-    return view('scan');
+    return response()
+        ->view('scan')
+        ->header('Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0')
+        ->header('Pragma', 'no-cache')
+        ->header('Expires', 'Sat, 01 Jan 2000 00:00:00 GMT');
 });
