@@ -27,7 +27,8 @@ class DashboardAnalyticsService
         $endDate = $rangeInfo['end_carbon'];
 
         // Base authorized query for the viewer
-        $baseAuthorizedQuery = $this->trackingService->buildAuthorizedDocumentQuery($viewer);
+        $baseAuthorizedQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+        $baseAuthorizedQuery = $this->applyDashboardScope($baseAuthorizedQuery, $viewer);
 
         // Date-filtered query for range-specific stats
         $rangeQuery = (clone $baseAuthorizedQuery)->whereBetween('documents.created_at', [$startDate, $endDate]);
@@ -252,7 +253,8 @@ class DashboardAnalyticsService
             $dayEnd = $current->copy()->endOfDay();
             $dateStr = $current->format('Y-m-d');
 
-            $dayBaseQuery = $this->trackingService->buildAuthorizedDocumentQuery($viewer);
+            $dayBaseQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+            $dayBaseQuery = $this->applyDashboardScope($dayBaseQuery, $viewer);
 
             $incomingCount = (clone $dayBaseQuery)
                 ->whereBetween('created_at', [$dayStart, $dayEnd])
@@ -384,5 +386,43 @@ class DashboardAnalyticsService
             'documents_per_day' => $docsPerDay,
             'overdue_rate' => $overdueRate,
         ];
+    }
+
+    private function applyDashboardScope($query, User $user)
+    {
+        $role = strtolower($user->roles->first()?->name ?? $user->role_name ?? '');
+        $officeName = $user->office?->name;
+        $divisionName = $user->division?->name;
+
+        if (in_array($role, ['admin', 'super_admin', 'administrator'], true)) {
+            // Admin: only documents within their office
+            return $query->where(function ($q) use ($officeName, $user) {
+                $q->where('office_assignment', $officeName)
+                  ->orWhereHas('creator', function ($qCreator) use ($user) {
+                      $qCreator->where('office_id', $user->office_id);
+                  });
+            });
+        } elseif ($role === 'supervisor') {
+            // Supervisor: division-level if division exists, otherwise office-level (like admin)
+            if ($divisionName) {
+                return $query->where('division_assignment', $divisionName);
+            } else {
+                return $query->where(function ($q) use ($officeName, $user) {
+                    $q->where('office_assignment', $officeName)
+                      ->orWhereHas('creator', function ($qCreator) use ($user) {
+                          $qCreator->where('office_id', $user->office_id);
+                      });
+                });
+            }
+        } else {
+            // Receiver / Standard user: only documents assigned to them or created by them
+            return $query->where(function ($q) use ($user) {
+                $q->where('created_by', $user->id)
+                  ->orWhere('assigned_user', $user->full_name)
+                  ->orWhere('assigned_user', $user->id)
+                  ->orWhere('assigned_user', $user->username)
+                  ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $user->id)->orWhere('assigned_name', $user->full_name));
+            });
+        }
     }
 }

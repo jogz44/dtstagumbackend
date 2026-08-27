@@ -1014,6 +1014,11 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Could not resolve the assigned user.'], 422);
         }
 
+        // Delete any existing notifications for this document and user first, so that the unique keys are cleared and a new notification is generated.
+        \App\Models\Notification::where('document_id', $document->id)
+            ->where('user_id', $targetUser->id)
+            ->delete();
+
         app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $user);
         app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
 
