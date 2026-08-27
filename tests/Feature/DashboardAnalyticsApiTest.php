@@ -3,9 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\Document;
-use App\Models\DocumentHistory;
 use App\Models\Office;
-use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -19,10 +17,15 @@ class DashboardAnalyticsApiTest extends TestCase
     use RefreshDatabase;
 
     private User $admin;
+
     private User $userA;
+
     private User $userB;
+
     private User $supervisor;
+
     private Office $officeA;
+
     private Office $officeB;
 
     protected function setUp(): void
@@ -84,7 +87,7 @@ class DashboardAnalyticsApiTest extends TestCase
     private function createTestDoc(array $overrides = []): Document
     {
         return Document::create(array_merge([
-            'tracking_number' => 'DOC-' . uniqid(),
+            'tracking_number' => 'DOC-'.uniqid(),
             'origin_sender' => 'Origin Office',
             'sender_name' => 'Sender Person',
             'document_type' => 'Request',
@@ -188,6 +191,13 @@ class DashboardAnalyticsApiTest extends TestCase
             'created_by' => $this->admin->id,
         ]);
 
+        $this->createTestDoc([
+            'tracking_number' => 'DOC-DUE-TODAY',
+            'status' => 'in_process',
+            'due_date' => Carbon::today()->format('Y-m-d'),
+            'created_by' => $this->admin->id,
+        ]);
+
         // Completed document with past due_date (NOT overdue because terminal)
         $this->createTestDoc([
             'tracking_number' => 'DOC-DONE-PAST',
@@ -199,7 +209,7 @@ class DashboardAnalyticsApiTest extends TestCase
         Sanctum::actingAs($this->admin);
         $response = $this->getJson('/api/dashboard/analytics?range=this_month');
         $response->assertOk()
-            ->assertJsonPath('summary.overdue', 1);
+            ->assertJsonPath('summary.overdue', 2);
     }
 
     /** @test */

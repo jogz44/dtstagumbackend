@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\AttentionSummaryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\DocumentTrackingController;
@@ -8,8 +9,8 @@ use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\ReportController;
-use App\Http\Controllers\ScanSessionController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\ScanSessionController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
@@ -55,8 +56,6 @@ Route::post('/login', function (Request $request) {
         'message' => 'Invalid username or password',
     ], 401);
 });
-
-Route::get('/attachments/{attachment}/public', [DocumentController::class, 'showAttachmentPublic']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
@@ -170,6 +169,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/me/sessions/{tokenId}', [UserSecurityController::class, 'meRevokeSession']);
         Route::delete('/me/sessions', [UserSecurityController::class, 'meRevokeOtherSessions']);
 
+        Route::get('/me/attention-summary', AttentionSummaryController::class);
         Route::get('/me/notifications', [NotificationController::class, 'index']);
         Route::get('/me/notifications/unread-count', [NotificationController::class, 'unreadCount']);
         Route::post('/me/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);

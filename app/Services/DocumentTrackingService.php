@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Document;
 use App\Models\DocumentHistory;
 use App\Models\User;
+use App\Support\DocumentStatuses;
 use App\Support\RoleNames;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -94,13 +95,13 @@ class DocumentTrackingService
         } elseif ($status === 'completed') {
             $query->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved']);
         } elseif ($status === 'overdue') {
-            $query->whereNotIn(DB::raw('LOWER(status)'), ['completed', 'released', 'archived', 'approved'])
-                  ->whereNotNull('due_date')
-                  ->where('due_date', '<', Carbon::today()->format('Y-m-d'));
+            $query->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
+                ->whereNotNull('due_date')
+                ->where('due_date', '<=', Carbon::today()->format('Y-m-d'));
         } elseif ($status === 'received') {
             $query->where(function ($q) {
                 $q->whereIn(DB::raw('LOWER(status)'), ['incoming', 'received'])
-                  ->orWhereHas('histories', fn ($qH) => $qH->whereIn(DB::raw('UPPER(action)'), ['RECEIVED', 'ACKNOWLEDGED']));
+                    ->orWhereHas('histories', fn ($qH) => $qH->whereIn(DB::raw('UPPER(action)'), ['RECEIVED', 'ACKNOWLEDGED']));
             });
         } elseif ($status === 'in_process') {
             $query->whereIn(DB::raw('LOWER(status)'), ['incoming', 'pending', 'outgoing', 'in progress', 'in_transit']);
@@ -110,11 +111,11 @@ class DocumentTrackingService
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
                 $q->where('tracking_number', 'LIKE', "%{$search}%")
-                  ->orWhere('description', 'LIKE', "%{$search}%")
-                  ->orWhere('origin_sender', 'LIKE', "%{$search}%")
-                  ->orWhere('sender_name', 'LIKE', "%{$search}%")
-                  ->orWhere('office_assignment', 'LIKE', "%{$search}%")
-                  ->orWhere('assigned_user', 'LIKE', "%{$search}%");
+                    ->orWhere('description', 'LIKE', "%{$search}%")
+                    ->orWhere('origin_sender', 'LIKE', "%{$search}%")
+                    ->orWhere('sender_name', 'LIKE', "%{$search}%")
+                    ->orWhere('office_assignment', 'LIKE', "%{$search}%")
+                    ->orWhere('assigned_user', 'LIKE', "%{$search}%");
             });
         }
 
@@ -210,9 +211,9 @@ class DocumentTrackingService
             ->count();
 
         $overdueCount = (clone $baseQuery)
-            ->whereNotIn(DB::raw('LOWER(status)'), ['completed', 'released', 'archived', 'approved'])
+            ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
             ->whereNotNull('due_date')
-            ->where('due_date', '<', Carbon::today()->format('Y-m-d'))
+            ->where('due_date', '<=', Carbon::today()->format('Y-m-d'))
             ->count();
 
         $completedCount = (clone $baseQuery)
@@ -242,14 +243,14 @@ class DocumentTrackingService
 
         return $query->where(function ($q) use ($viewer) {
             $q->forMyDocuments($viewer)
-              ->orWhere(fn ($qReg) => $qReg->forRegistry($viewer))
-              ->orWhere(fn ($qInc) => $qInc->forIncoming($viewer))
-              ->orWhere(fn ($qOut) => $qOut->forOutgoing($viewer))
-              ->orWhere('created_by', $viewer->id)
-              ->orWhere('assigned_user', $viewer->full_name)
-              ->orWhere('assigned_user', $viewer->id)
-              ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $viewer->id)->orWhere('assigned_name', $viewer->full_name))
-              ->orWhereHas('histories', fn ($qHist) => $qHist->involvingUser($viewer));
+                ->orWhere(fn ($qReg) => $qReg->forRegistry($viewer))
+                ->orWhere(fn ($qInc) => $qInc->forIncoming($viewer))
+                ->orWhere(fn ($qOut) => $qOut->forOutgoing($viewer))
+                ->orWhere('created_by', $viewer->id)
+                ->orWhere('assigned_user', $viewer->full_name)
+                ->orWhere('assigned_user', $viewer->id)
+                ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $viewer->id)->orWhere('assigned_name', $viewer->full_name))
+                ->orWhereHas('histories', fn ($qHist) => $qHist->involvingUser($viewer));
         });
     }
 
@@ -269,6 +270,7 @@ class DocumentTrackingService
     {
         if ($this->checkIsAdmin($viewer)) {
             $query->whereIn(DB::raw('LOWER(status)'), ['registered', 'incoming', 'pending', 'received', 'in_process', 'in progress', 'in_transit']);
+
             return;
         }
 
@@ -276,15 +278,15 @@ class DocumentTrackingService
 
         $query->where(function ($q) use ($viewer, $officeName) {
             $q->forIncoming($viewer)
-              ->orWhere('assigned_user', $viewer->full_name)
-              ->orWhere('assigned_user', $viewer->id)
-              ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $viewer->id)->orWhere('assigned_name', $viewer->full_name))
-              ->orWhereHas('histories', function ($qHist) use ($viewer, $officeName) {
-                  $qHist->where('to_user_id', $viewer->id);
-                  if ($officeName) {
-                      $qHist->orWhere('to_office', $officeName);
-                  }
-              });
+                ->orWhere('assigned_user', $viewer->full_name)
+                ->orWhere('assigned_user', $viewer->id)
+                ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $viewer->id)->orWhere('assigned_name', $viewer->full_name))
+                ->orWhereHas('histories', function ($qHist) use ($viewer, $officeName) {
+                    $qHist->where('to_user_id', $viewer->id);
+                    if ($officeName) {
+                        $qHist->orWhere('to_office', $officeName);
+                    }
+                });
         });
     }
 
@@ -292,6 +294,7 @@ class DocumentTrackingService
     {
         if ($this->checkIsAdmin($viewer)) {
             $query->whereIn(DB::raw('LOWER(status)'), ['outgoing', 'released', 'transferred', 'forwarded']);
+
             return;
         }
 
@@ -299,14 +302,14 @@ class DocumentTrackingService
 
         $query->where(function ($q) use ($viewer, $officeName) {
             $q->forOutgoing($viewer)
-              ->orWhere('created_by', $viewer->id)
-              ->orWhereHas('histories', function ($qHist) use ($viewer, $officeName) {
-                  $qHist->where('performed_by', $viewer->id)
+                ->orWhere('created_by', $viewer->id)
+                ->orWhereHas('histories', function ($qHist) use ($viewer, $officeName) {
+                    $qHist->where('performed_by', $viewer->id)
                         ->orWhere('from_user_id', $viewer->id);
-                  if ($officeName) {
-                      $qHist->orWhere('from_office', $officeName);
-                  }
-              });
+                    if ($officeName) {
+                        $qHist->orWhere('from_office', $officeName);
+                    }
+                });
         });
     }
 
@@ -595,7 +598,7 @@ class DocumentTrackingService
                 $query->where(function ($q) use ($terms) {
                     foreach ($terms as $term) {
                         $q->orWhere('first_name', 'LIKE', "%{$term}%")
-                          ->orWhere('last_name', 'LIKE', "%{$term}%");
+                            ->orWhere('last_name', 'LIKE', "%{$term}%");
                     }
                 });
             })
@@ -651,15 +654,15 @@ class DocumentTrackingService
         $parts = [];
 
         if ($diff->d > 0) {
-            $parts[] = "{$diff->d} day" . ($diff->d > 1 ? 's' : '');
+            $parts[] = "{$diff->d} day".($diff->d > 1 ? 's' : '');
         }
 
         if ($diff->h > 0) {
-            $parts[] = "{$diff->h} hour" . ($diff->h > 1 ? 's' : '');
+            $parts[] = "{$diff->h} hour".($diff->h > 1 ? 's' : '');
         }
 
         if (empty($parts)) {
-            return "{$diff->i} min" . ($diff->i > 1 ? 's' : '');
+            return "{$diff->i} min".($diff->i > 1 ? 's' : '');
         }
 
         return implode(' ', $parts);
@@ -681,15 +684,15 @@ class DocumentTrackingService
         $parts = [];
 
         if ($diff->d > 0) {
-            $parts[] = "{$diff->d} day" . ($diff->d > 1 ? 's' : '');
+            $parts[] = "{$diff->d} day".($diff->d > 1 ? 's' : '');
         }
 
         if ($diff->h > 0) {
-            $parts[] = "{$diff->h} hour" . ($diff->h > 1 ? 's' : '');
+            $parts[] = "{$diff->h} hour".($diff->h > 1 ? 's' : '');
         }
 
         if (empty($parts)) {
-            return "{$diff->i} min" . ($diff->i > 1 ? 's' : '');
+            return "{$diff->i} min".($diff->i > 1 ? 's' : '');
         }
 
         return implode(' ', $parts);

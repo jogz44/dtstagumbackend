@@ -3,13 +3,19 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreDocumentRequest;
+use App\Models\Division;
 use App\Models\Document;
 use App\Models\DocumentAcknowledgement;
 use App\Models\DocumentAttachment;
 use App\Models\DocumentHistory;
+use App\Models\Office;
+use App\Models\ScanPage;
+use App\Models\ScanSession;
 use App\Models\User;
 use App\Services\AuditService;
+use App\Services\DocumentAttentionService;
 use App\Services\DocumentNotificationService;
+use App\Services\DocumentTrackingService;
 use App\Services\UserAuditAccess;
 use App\Support\RoleNames;
 use Illuminate\Filesystem\FilesystemAdapter;
@@ -21,10 +27,15 @@ use Illuminate\Support\Str;
 
 class DocumentController extends Controller
 {
-    public function index(Request $request): JsonResponse
+    public function index(Request $request, DocumentAttentionService $attentionService): JsonResponse
     {
         $tab = $request->query('tab', 'my');
-        $query = Document::query()->with([
+        $user = $request->user();
+        $query = $request->query('attention') === 'due'
+            ? $attentionService->buildAuthorizedDueQuery($user)
+            : Document::query();
+
+        $query->with([
             'creator',
             'creator.office',
             'attachments',
@@ -33,9 +44,9 @@ class DocumentController extends Controller
             'acknowledgements.user.office',
         ]);
 
-        $user = $request->user();
-
-        if ($tab === 'my') {
+        if ($request->query('attention') === 'due') {
+            // The canonical authorized due scope replaces tab-specific scopes.
+        } elseif ($tab === 'my') {
             $query->forMyDocuments($user);
         } elseif ($tab === 'registry') {
             $query->forRegistry($user);
@@ -62,9 +73,9 @@ class DocumentController extends Controller
             if ($assignment === '__unassigned__' || $assignment === 'unassigned') {
                 $query->where(function ($q) {
                     $q->whereNull('office_id')
-                      ->orWhereNull('office_assignment')
-                      ->orWhere('office_assignment', '')
-                      ->orWhere('office_assignment', 'Unassigned Office');
+                        ->orWhereNull('office_assignment')
+                        ->orWhere('office_assignment', '')
+                        ->orWhere('office_assignment', 'Unassigned Office');
                 });
             } else {
                 $query->where('office_assignment', $assignment);
@@ -74,16 +85,16 @@ class DocumentController extends Controller
             if ($officeId === 'unassigned' || $officeId === '__unassigned__') {
                 $query->where(function ($q) {
                     $q->whereNull('office_id')
-                      ->orWhereNull('office_assignment')
-                      ->orWhere('office_assignment', '')
-                      ->orWhere('office_assignment', 'Unassigned Office');
+                        ->orWhereNull('office_assignment')
+                        ->orWhere('office_assignment', '')
+                        ->orWhere('office_assignment', 'Unassigned Office');
                 });
             } else {
-                $office = \App\Models\Office::find($officeId);
+                $office = Office::find($officeId);
                 if ($office) {
                     $query->where(function ($q) use ($officeId, $office) {
                         $q->where('office_id', $officeId)
-                          ->orWhere('office_assignment', $office->name);
+                            ->orWhere('office_assignment', $office->name);
                     });
                 } else {
                     $query->where('office_id', $officeId);
@@ -96,9 +107,9 @@ class DocumentController extends Controller
             if ($assignment === '__unassigned__' || $assignment === 'unassigned') {
                 $query->where(function ($q) {
                     $q->whereNull('division_id')
-                      ->orWhereNull('division_assignment')
-                      ->orWhere('division_assignment', '')
-                      ->orWhere('division_assignment', 'Unassigned Division');
+                        ->orWhereNull('division_assignment')
+                        ->orWhere('division_assignment', '')
+                        ->orWhere('division_assignment', 'Unassigned Division');
                 });
             } else {
                 $query->where('division_assignment', $assignment);
@@ -108,16 +119,16 @@ class DocumentController extends Controller
             if ($divisionId === 'unassigned' || $divisionId === '__unassigned__') {
                 $query->where(function ($q) {
                     $q->whereNull('division_id')
-                      ->orWhereNull('division_assignment')
-                      ->orWhere('division_assignment', '')
-                      ->orWhere('division_assignment', 'Unassigned Division');
+                        ->orWhereNull('division_assignment')
+                        ->orWhere('division_assignment', '')
+                        ->orWhere('division_assignment', 'Unassigned Division');
                 });
             } else {
-                $division = \App\Models\Division::find($divisionId);
+                $division = Division::find($divisionId);
                 if ($division) {
                     $query->where(function ($q) use ($divisionId, $division) {
                         $q->where('division_id', $divisionId)
-                          ->orWhere('division_assignment', $division->name);
+                            ->orWhere('division_assignment', $division->name);
                     });
                 } else {
                     $query->where('division_id', $divisionId);
@@ -125,14 +136,23 @@ class DocumentController extends Controller
             }
         }
 
-        $documents = $query->latest()->get()->map(function ($doc) {
+        $documents = $query->latest()->get();
+        $assignedUserIds = $documents
+            ->pluck('assigned_user')
+            ->filter(fn ($assignedUser) => is_string($assignedUser) && Str::isUuid($assignedUser))
+            ->unique()
+            ->values();
+        $assignedUsers = User::query()
+            ->whereKey($assignedUserIds)
+            ->get()
+            ->keyBy('id');
+
+        $documents->each(function ($doc) use ($assignedUsers) {
             $assigned = $doc->assigned_user;
             if (! empty($assigned) && Str::isUuid($assigned)) {
-                $user = User::find($assigned);
+                $user = $assignedUsers->get($assigned);
                 $doc->assigned_user = $user ? $user->full_name : $assigned;
             }
-
-            return $doc;
         });
 
         return response()->json([
@@ -140,8 +160,10 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function show(Request $request, Document $document): JsonResponse
+    public function show(Request $request, Document $document, DocumentTrackingService $trackingService): JsonResponse
     {
+        $this->authorizeDocumentRead($request, $document, $trackingService);
+
         $document->load([
             'creator',
             'creator.office',
@@ -293,7 +315,7 @@ class DocumentController extends Controller
 
             // Sync phone-scanned pages if a session is provided
             if ($request->filled('scan_session_token')) {
-                $scanPages = \App\Models\ScanPage::where('session_token', $request->scan_session_token)
+                $scanPages = ScanPage::where('session_token', $request->scan_session_token)
                     ->orderBy('page_number')
                     ->get();
 
@@ -325,7 +347,7 @@ class DocumentController extends Controller
 
                 // Cleanup temporary storage and session
                 Storage::disk($defaultDisk)->deleteDirectory("scan-sessions/{$request->scan_session_token}");
-                \App\Models\ScanSession::where('token', $request->scan_session_token)->delete();
+                ScanSession::where('token', $request->scan_session_token)->delete();
             }
 
             // 1. Log in canonical document transaction history.
@@ -354,7 +376,7 @@ class DocumentController extends Controller
 
             // 3. Create pending acknowledgement if a user is assigned
             if ($assignedName && $assignedName !== '-Select user-' && $assignedName !== '-Select office first-') {
-                $document->acknowledgements()->create([
+                $acknowledgement = $document->acknowledgements()->create([
                     'user_id' => $targetUser?->id,
                     'assigned_name' => $assignedName,
                     'from_office' => $document->origin_sender ?? $user->office?->name,
@@ -378,8 +400,12 @@ class DocumentController extends Controller
                 }
 
                 if ($targetUser) {
-                    app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $request->user());
-                    app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+                    app(DocumentNotificationService::class)->notifyReceived(
+                        $document,
+                        $targetUser,
+                        $request->user(),
+                        $acknowledgement->id,
+                    );
                 }
             }
 
@@ -615,15 +641,19 @@ class DocumentController extends Controller
         ]);
 
         if ($targetUser) {
-            $document->acknowledgements()->create([
+            $acknowledgement = $document->acknowledgements()->create([
                 'user_id' => $targetUser->id,
                 'assigned_name' => $assignedName,
                 'from_office' => $request->user()->office?->name,
                 'remarks' => $isSameOffice ? 'Pending acknowledgement.' : 'Pending acknowledgement (Released).',
             ]);
 
-            app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $request->user());
-            app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+            app(DocumentNotificationService::class)->notifyReceived(
+                $document,
+                $targetUser,
+                $request->user(),
+                $acknowledgement->id,
+            );
         }
 
         DocumentHistory::record($document, $historyAction, $request->user(), [
@@ -673,15 +703,19 @@ class DocumentController extends Controller
         ]);
 
         if ($targetUser) {
-            $document->acknowledgements()->create([
+            $acknowledgement = $document->acknowledgements()->create([
                 'user_id' => $targetUser->id,
                 'assigned_name' => $targetUser->full_name,
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement (Released).',
             ]);
 
-            app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $request->user());
-            app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+            app(DocumentNotificationService::class)->notifyReceived(
+                $document,
+                $targetUser,
+                $request->user(),
+                $acknowledgement->id,
+            );
         }
 
         DocumentHistory::record($document, 'released', $request->user(), [
@@ -756,15 +790,19 @@ class DocumentController extends Controller
         ]);
 
         if ($lastUser) {
-            $document->acknowledgements()->create([
+            $acknowledgement = $document->acknowledgements()->create([
                 'user_id' => $lastUser->id,
                 'assigned_name' => $lastUser->full_name,
                 'from_office' => $request->user()->office?->name,
                 'remarks' => 'Pending acknowledgement (Returned).',
             ]);
 
-            app(DocumentNotificationService::class)->notifyReceived($document, $lastUser, $request->user());
-            app(DocumentNotificationService::class)->notifyPending($document, $lastUser);
+            app(DocumentNotificationService::class)->notifyReceived(
+                $document,
+                $lastUser,
+                $request->user(),
+                $acknowledgement->id,
+            );
         }
 
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
@@ -833,22 +871,15 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function showAttachment(Request $request, DocumentAttachment $attachment)
-    {
-        $disk = $attachment->disk ?? 'shared_documents';
-        /** @var FilesystemAdapter $storage */
-        $storage = Storage::disk($disk);
-        if (! $storage->exists($attachment->path)) {
-            abort(404, 'File not found');
-        }
+    public function showAttachment(
+        Request $request,
+        DocumentAttachment $attachment,
+        DocumentTrackingService $trackingService,
+    ) {
+        $document = $attachment->document;
+        abort_unless($document, 404, 'Document not found.');
+        $this->authorizeDocumentRead($request, $document, $trackingService);
 
-        return $storage->response($attachment->path, $attachment->original_name, [
-            'Content-Type' => $attachment->mime_type,
-        ], 'inline');
-    }
-
-    public function showAttachmentPublic(DocumentAttachment $attachment)
-    {
         $disk = $attachment->disk ?? 'shared_documents';
         /** @var FilesystemAdapter $storage */
         $storage = Storage::disk($disk);
@@ -963,15 +994,19 @@ class DocumentController extends Controller
 
         // Create acknowledgement for the new assignee
         if ($targetUser) {
-            $document->acknowledgements()->create([
+            $acknowledgement = $document->acknowledgements()->create([
                 'user_id' => $targetUser->id,
                 'assigned_name' => $assignedName,
                 'from_office' => $user->office?->name,
                 'remarks' => 'Pending acknowledgement (Reassigned).',
             ]);
 
-            app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $user);
-            app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
+            app(DocumentNotificationService::class)->notifyReceived(
+                $document,
+                $targetUser,
+                $user,
+                $acknowledgement->id,
+            );
         }
 
         DocumentHistory::record($document, 'REASSIGNED', $user, [
@@ -1010,7 +1045,6 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Could not resolve the assigned user.'], 422);
         }
 
-        app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $user);
         app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
 
         DocumentHistory::record($document, 'FORCE_NOTIFIED', $user, [
@@ -1089,7 +1123,7 @@ class DocumentController extends Controller
             'scan_session_token' => 'required|string',
         ]);
 
-        $scanPages = \App\Models\ScanPage::where('session_token', $request->scan_session_token)
+        $scanPages = ScanPage::where('session_token', $request->scan_session_token)
             ->orderBy('page_number')
             ->get();
 
@@ -1179,8 +1213,14 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function acknowledge(Request $request, Document $document): JsonResponse
-    {
+    public function acknowledge(
+        Request $request,
+        Document $document,
+        DocumentTrackingService $trackingService,
+        DocumentNotificationService $notificationService,
+    ): JsonResponse {
+        $this->authorizeDocumentRead($request, $document, $trackingService);
+
         $user = $request->user();
 
         /** @var DocumentAcknowledgement|null $acknowledgement */
@@ -1209,9 +1249,25 @@ class DocumentController extends Controller
             ]);
         }
 
+        $notificationService->markAssignmentNotificationsRead($document, $user);
+
         return response()->json([
             'message' => 'Document acknowledged successfully.',
             'document' => $document->fresh(),
+            'unread_notifications' => $user->notifications()->whereNull('read_at')->count(),
         ]);
+    }
+
+    private function authorizeDocumentRead(
+        Request $request,
+        Document $document,
+        DocumentTrackingService $trackingService,
+    ): void {
+        $isAuthorized = $trackingService
+            ->buildAuthorizedDocumentQuery($request->user())
+            ->whereKey($document->getKey())
+            ->exists();
+
+        abort_unless($isAuthorized, 403, 'You are not authorized to view this document.');
     }
 }
