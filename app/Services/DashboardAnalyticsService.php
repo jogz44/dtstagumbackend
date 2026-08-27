@@ -4,8 +4,8 @@ namespace App\Services;
 
 use App\Models\Document;
 use App\Models\DocumentAcknowledgement;
-use App\Models\DocumentHistory;
 use App\Models\User;
+use App\Support\DocumentStatuses;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -100,7 +100,7 @@ class DashboardAnalyticsService
                 'date_to' => $end->format('Y-m-d'),
                 'start_carbon' => $start,
                 'end_carbon' => $end,
-                'label' => $start->format('M d, Y') . ' - ' . $end->format('M d, Y'),
+                'label' => $start->format('M d, Y').' - '.$end->format('M d, Y'),
             ];
         }
 
@@ -113,12 +113,12 @@ class DashboardAnalyticsService
             case 'last_7_days':
                 $start = $today->copy()->subDays(6)->startOfDay();
                 $end = $today->copy()->endOfDay();
-                $label = 'Last 7 Days (' . $start->format('M d') . ' - ' . $end->format('M d, Y') . ')';
+                $label = 'Last 7 Days ('.$start->format('M d').' - '.$end->format('M d, Y').')';
                 break;
             case 'this_week':
                 $start = Carbon::now()->startOfWeek();
                 $end = Carbon::now()->endOfWeek();
-                $label = 'This Week (' . $start->format('M d') . ' - ' . $end->format('M d, Y') . ')';
+                $label = 'This Week ('.$start->format('M d').' - '.$end->format('M d, Y').')';
                 break;
             case 'last_30_days':
                 $start = $today->copy()->subDays(29)->startOfDay();
@@ -128,14 +128,14 @@ class DashboardAnalyticsService
             case 'this_year':
                 $start = Carbon::now()->startOfYear();
                 $end = Carbon::now()->endOfYear();
-                $label = 'This Year (' . $start->format('Y') . ')';
+                $label = 'This Year ('.$start->format('Y').')';
                 break;
             case 'this_month':
             default:
                 $range = 'this_month';
                 $start = Carbon::now()->startOfMonth();
                 $end = Carbon::now()->endOfMonth();
-                $label = 'This Month (' . $start->format('M Y') . ')';
+                $label = 'This Month ('.$start->format('M Y').')';
                 break;
         }
 
@@ -154,7 +154,7 @@ class DashboardAnalyticsService
         $totalDocuments = (clone $rangeQuery)->count();
 
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
-        $terminalStatuses = ['completed', 'released', 'archived', 'approved'];
+        $terminalStatuses = DocumentStatuses::TERMINAL;
 
         $pending = (clone $baseQuery)
             ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
@@ -163,7 +163,7 @@ class DashboardAnalyticsService
         $overdue = (clone $baseQuery)
             ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
             ->whereNotNull('due_date')
-            ->where('due_date', '<', Carbon::today()->format('Y-m-d'))
+            ->where('due_date', '<=', Carbon::today()->format('Y-m-d'))
             ->count();
 
         $thisMonthStart = Carbon::now()->startOfMonth();
@@ -322,9 +322,9 @@ class DashboardAnalyticsService
             $dateStr = $current->format('Y-m-d');
 
             $count = (clone $baseQuery)
-                ->whereNotIn(DB::raw('LOWER(status)'), ['completed', 'released', 'archived', 'approved'])
+                ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
                 ->whereNotNull('due_date')
-                ->where('due_date', '<', $dateStr)
+                ->where('due_date', '<=', $dateStr)
                 ->whereDate('created_at', '<=', $dateStr)
                 ->count();
 
@@ -373,9 +373,9 @@ class DashboardAnalyticsService
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
         $activeDocsCount = (clone $baseQuery)->whereIn(DB::raw('LOWER(status)'), $activeStatuses)->count();
         $overdueCount = (clone $baseQuery)
-            ->whereNotIn(DB::raw('LOWER(status)'), ['completed', 'released', 'archived', 'approved'])
+            ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
             ->whereNotNull('due_date')
-            ->where('due_date', '<', Carbon::today()->format('Y-m-d'))
+            ->where('due_date', '<=', Carbon::today()->format('Y-m-d'))
             ->count();
 
         $overdueRate = $activeDocsCount > 0 ? round(($overdueCount / $activeDocsCount) * 100, 1) : 0.0;
