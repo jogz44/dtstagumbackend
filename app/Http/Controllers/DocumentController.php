@@ -220,7 +220,11 @@ class DocumentController extends Controller
             }
 
             if ($validated['is_internal'] ?? false) {
-                $validated['origin_sender'] = $user->office?->name ?? $user->full_name;
+                // Only default origin_sender to the registrar's office if none was explicitly provided.
+                // Do NOT overwrite it — the user may have intentionally typed a different origin.
+                if (empty($validated['origin_sender'])) {
+                    $validated['origin_sender'] = $user->office?->name ?? $user->full_name;
+                }
             }
 
             if ($validated['self_assign'] ?? false) {
