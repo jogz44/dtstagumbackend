@@ -25,6 +25,12 @@ class UserAccessResource extends JsonResource
             'role_label' => $role ? RoleNames::label($role->name) : null,
             'is_active' => (bool) $this->is_active,
             'account_status' => $this->account_status,
+            'permission_overrides' => $this->whenLoaded('permissionOverrides', function () {
+                return $this->permissionOverrides->map(fn ($override) => [
+                    'permission_name' => $override->permission_name,
+                    'effect' => $override->effect,
+                ])->values();
+            }, []),
             'deleted_at' => $this->deleted_at?->toIso8601String(),
         ];
     }

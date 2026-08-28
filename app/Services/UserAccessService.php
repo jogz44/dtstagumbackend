@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Role;
 use App\Models\User;
+use App\Models\UserPermissionOverride;
 use App\Support\RoleNames;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -107,7 +108,14 @@ class UserAccessService
                 $this->recordStatusChange($user, $actor, $previousIsActive, false, false, $request);
             }
 
-            return $user->fresh(['office', 'division', 'roles', 'pmisEmployee']);
+            if (array_key_exists('permission_overrides', $attributes)) {
+                $currentRoleName = strtolower($user->roles->first()?->name ?? '');
+                if (! in_array($currentRoleName, RoleNames::adminRoles(), true)) {
+                    $this->syncPermissionOverrides($user, $actor, $attributes['permission_overrides'], $request);
+                }
+            }
+
+            return $user->fresh(['office', 'division', 'roles', 'pmisEmployee', 'permissionOverrides']);
         }, attempts: 3);
     }
 
@@ -192,5 +200,53 @@ class UserAccessService
             $request,
             ['resource_type' => 'User', 'resource_id' => $user->id],
         );
+    }
+
+    private function syncPermissionOverrides(User $user, User $actor, array $overrides, Request $request): void
+    {
+        $previousOverrides = $user->permissionOverrides()->get()
+            ->map(fn ($ov) => ['permission_name' => $ov->permission_name, 'effect' => $ov->effect])
+            ->values()
+            ->toArray();
+
+        $user->permissionOverrides()->delete();
+
+        foreach ($overrides as $override) {
+            UserPermissionOverride::create([
+                'user_id' => $user->id,
+                'permission_name' => $override['permission_name'],
+                'effect' => $override['effect'],
+            ]);
+        }
+
+        $newOverrides = collect($overrides)
+            ->map(fn ($ov) => ['permission_name' => $ov['permission_name'], 'effect' => $ov['effect']])
+            ->values()
+            ->toArray();
+
+        if ($previousOverrides !== $newOverrides) {
+            $this->audit->accountHistory(
+                $user,
+                $actor,
+                'user.permission_overrides_updated',
+                'Permission overrides were updated for '.$user->full_name.'.',
+                [
+                    'permission_overrides' => [
+                        'before' => $previousOverrides,
+                        'after' => $newOverrides,
+                    ],
+                ],
+                $request,
+            );
+
+            $this->audit->activity(
+                $actor,
+                'user.permission_overrides_updated',
+                'User Management',
+                'Updated permission overrides for '.$user->full_name.'.',
+                $request,
+                ['resource_type' => 'User', 'resource_id' => $user->id],
+            );
+        }
     }
 }
