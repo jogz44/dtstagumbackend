@@ -54,6 +54,9 @@ class DashboardAnalyticsService
         // 7. Performance Summary
         $performance = $this->calculatePerformanceSummary($baseAuthorizedQuery, $rangeQuery, $startDate, $endDate);
 
+        // 8. Yearly Overview (static cards that don't change with range selector)
+        $yearlyOverview = $this->calculateYearlyOverview($baseAuthorizedQuery);
+
         return [
             'range_info' => [
                 'selected_range' => $rangeInfo['selected_range'],
@@ -68,6 +71,7 @@ class DashboardAnalyticsService
             'top_document_types' => $topDocumentTypes,
             'overdue_trend' => $overdueTrend,
             'performance' => $performance,
+            'yearly_overview' => $yearlyOverview,
         ];
     }
 
@@ -385,6 +389,56 @@ class DashboardAnalyticsService
             'acknowledgement_rate' => $ackRate,
             'documents_per_day' => $docsPerDay,
             'overdue_rate' => $overdueRate,
+        ];
+    }
+
+    private function calculateYearlyOverview(Builder $baseQuery): array
+    {
+        $yearStart = Carbon::now()->startOfYear();
+        $yearEnd = Carbon::now()->endOfYear();
+        $today = Carbon::today();
+
+        $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
+        $terminalStatuses = DocumentStatuses::TERMINAL;
+
+        // Received total (yearly) - documents with status 'received' created this year
+        $receivedTotal = (clone $baseQuery)
+            ->where(DB::raw('LOWER(status)'), 'received')
+            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Pending total (yearly) - active status documents created this year
+        $pendingTotal = (clone $baseQuery)
+            ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
+            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Overdue total (yearly) - overdue documents this year
+        $overdueTotal = (clone $baseQuery)
+            ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
+            ->whereNotNull('due_date')
+            ->where('due_date', '<=', $today->format('Y-m-d'))
+            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Completed total (yearly) - completed/released/approved this year
+        $completedTotal = (clone $baseQuery)
+            ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
+            ->whereBetween('documents.updated_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Received today - documents with status 'received' created today
+        $receivedToday = (clone $baseQuery)
+            ->where(DB::raw('LOWER(status)'), 'received')
+            ->whereDate('documents.created_at', $today)
+            ->count();
+
+        return [
+            'received_total' => $receivedTotal,
+            'pending_total' => $pendingTotal,
+            'overdue_total' => $overdueTotal,
+            'completed_total' => $completedTotal,
+            'received_today' => $receivedToday,
         ];
     }
 
