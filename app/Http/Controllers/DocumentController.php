@@ -967,11 +967,22 @@ class DocumentController extends Controller
     }
 
     /**
-     * Admin-only: reassign a document to another user within their office.
+     * Reassign a document to another user within their office.
+     * Allowed for: admins, supervisors, or the current holder of the document.
      */
     public function reassign(Request $request, Document $document): JsonResponse
     {
         $user = $request->user();
+
+        $roleName = strtolower($user->roles->first()?->name ?? '');
+        $isAdmin = $user->username === 'admin' || $user->hasAnyRole(RoleNames::adminRoles());
+        $isSupervisor = $roleName === 'supervisor';
+        $isCurrentHolder = $document->assigned_user === $user->full_name
+            || $document->assigned_user === $user->id;
+
+        if (! $isAdmin && ! $isSupervisor && ! $isCurrentHolder) {
+            return response()->json(['message' => 'You are not authorized to reassign this document.'], 403);
+        }
 
         $validated = $request->validate([
             'assigned_user' => 'required|string',
