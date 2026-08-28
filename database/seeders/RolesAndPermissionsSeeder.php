@@ -11,21 +11,19 @@ class RolesAndPermissionsSeeder extends Seeder
     public function run(): void
     {
         $roles = [
-            ['name' => 'super_admin', 'guard_name' => 'web', 'display_name' => 'Super Admin', 'description' => 'Full system access', 'is_system' => true],
-            ['name' => 'supervisor', 'guard_name' => 'web', 'display_name' => 'Supervisor', 'description' => 'Can oversee and approve documents', 'is_system' => true],
-            ['name' => 'receiver', 'guard_name' => 'web', 'display_name' => 'Receiver', 'description' => 'Can receive and route documents', 'is_system' => true],
+            ['name' => 'admin', 'guard_name' => 'web', 'display_name' => 'Administrator', 'description' => 'Full system access', 'is_system' => true],
+            ['name' => 'supervisor', 'guard_name' => 'web', 'display_name' => 'Supervisor', 'description' => 'Can transfer documents', 'is_system' => true],
+            ['name' => 'receiver', 'guard_name' => 'web', 'display_name' => 'Receiver', 'description' => 'Can receive documents', 'is_system' => true],
         ];
 
         $permissions = [
-            ['name' => 'documents.receive', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Receive incoming documents'],
-            ['name' => 'documents.transfer', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Transfer documents to another office or division'],
-            ['name' => 'documents.view_confidential', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'View confidential documents'],
-            ['name' => 'documents.approve', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Approve documents'],
-            ['name' => 'documents.archive', 'guard_name' => 'web', 'group_name' => 'documents', 'description' => 'Archive documents'],
-            ['name' => 'users.create', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Create users'],
-            ['name' => 'users.edit', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Edit users'],
-            ['name' => 'users.delete', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Delete users'],
-            ['name' => 'users.manage_permissions', 'guard_name' => 'web', 'group_name' => 'users', 'description' => 'Manage user permissions'],
+            ['name' => 'can_view_confidential', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'View, share, edit confidential documents within office'],
+            ['name' => 'can_edit_document', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Edit a document'],
+            ['name' => 'can_share_document', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Share a document'],
+            ['name' => 'can_transfer_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Transfer a document'],
+            ['name' => 'can_receive_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Only receive this type of document'],
+            ['name' => 'can_register_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Register a document'],
+            ['name' => 'users.manage', 'guard_name' => 'web', 'group_name' => 'Users', 'description' => 'Manage user accounts'],
         ];
 
         $roleModels = collect($roles)->mapWithKeys(function (array $role) {
@@ -36,18 +34,8 @@ class RolesAndPermissionsSeeder extends Seeder
             return [$permission['name'] => Permission::updateOrCreate(['name' => $permission['name'], 'guard_name' => $permission['guard_name']], $permission)];
         });
 
-        $roleModels['super_admin']->syncPermissions($permissionModels->keys()->all());
-        $roleModels['supervisor']->syncPermissions([
-            'documents.transfer',
-            'documents.view_confidential',
-            'documents.approve',
-            'documents.archive',
-            'users.create',
-            'users.edit',
-        ]);
-        $roleModels['receiver']->syncPermissions([
-            'documents.receive',
-            'documents.transfer',
-        ]);
+        $roleModels['admin']->syncPermissions(array_column($permissions, 'name'));
+        $roleModels['supervisor']->syncPermissions(array_column($permissions, 'name'));
+        $roleModels['receiver']->syncPermissions(['can_receive_documents', 'can_register_documents']);
     }
 }

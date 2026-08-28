@@ -7,6 +7,18 @@ use Illuminate\Validation\Rule;
 
 class StoreUserRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $this->merge([
+            'employee_id' => $this->input('employee_id', $this->input('employeeId')),
+            'office_id' => $this->input('office_id', $this->input('officeId')),
+            'division_id' => $this->input('division_id', $this->input('divisionId')),
+            'is_active' => $this->has('is_active')
+                ? filter_var($this->input('is_active'), FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true
+                : ($this->has('status') ? strtolower((string) $this->input('status')) === 'active' : true),
+        ]);
+    }
+
     public function authorize(): bool
     {
         return true;
@@ -15,23 +27,34 @@ class StoreUserRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'username' => ['required', 'string', 'max:255', 'unique:users,username'],
-            'password' => ['required', 'string', 'min:8'],
-            'first_name' => ['required', 'string', 'max:255'],
-            'last_name' => ['required', 'string', 'max:255'],
+            'pmis_employee_id' => [
+                'required',
+                'uuid',
+                Rule::exists('pmis_employees', 'id'),
+                Rule::unique('users', 'pmis_employee_id'),
+            ],
+            'role' => ['nullable', 'string', Rule::exists('roles', 'name')],
+            'username' => ['nullable', 'string', 'max:255', Rule::unique('users', 'username')],
             'office_id' => ['nullable', 'uuid', Rule::exists('offices', 'id')],
             'division_id' => ['nullable', 'uuid', Rule::exists('divisions', 'id')],
             'employee_id' => ['nullable', 'string', 'max:255'],
-            'birthdate' => ['nullable', 'date'],
+            'birthdate' => ['nullable', 'date_format:Y-m-d'],
             'position' => ['nullable', 'string', 'max:255'],
+            'employment_status' => ['nullable', 'string'],
             'avatar_url' => ['nullable', 'url'],
-            'is_active' => ['boolean'],
-            'role' => ['nullable', 'string', Rule::exists('roles', 'name')],
-            'permissions' => ['nullable', 'array'],
-            'permissions.*' => ['string', Rule::exists('permissions', 'name')],
-            'permission_overrides' => ['nullable', 'array'],
-            'permission_overrides.*.name' => ['required_with:permission_overrides', 'string', Rule::exists('permissions', 'name')],
-            'permission_overrides.*.effect' => ['required_with:permission_overrides', Rule::in(['allow', 'deny'])],
+            'email' => ['nullable', 'email', 'max:255'],
+            'is_active' => ['nullable', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'pmis_employee_id.required' => 'Every portal user account must be linked to a PMIS employee record.',
+            'pmis_employee_id.exists' => 'The selected PMIS employee record does not exist.',
+            'pmis_employee_id.unique' => 'This PMIS employee already has a linked portal account.',
+            'role.required' => 'System role is required.',
+            'role.exists' => 'The selected system role is invalid.',
         ];
     }
 }

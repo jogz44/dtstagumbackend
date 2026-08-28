@@ -9,6 +9,6 @@ class AuthController extends Controller
 {
     public function me(Request $request)
     {
-        return new UserResource($request->user()->load(['office', 'division', 'permissionOverrides']));
+        return new UserResource($request->user()->load(['office', 'division', 'roles']));
     }
 }

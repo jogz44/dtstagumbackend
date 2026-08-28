@@ -11,19 +11,29 @@ class AdminUserSeeder extends Seeder
 {
     public function run(): void
     {
+        $adminRole = Role::firstOrCreate(
+            ['name' => 'admin', 'guard_name' => 'web'],
+            [
+                'display_name' => 'Admin',
+                'description' => 'Full system access',
+                'is_system' => true,
+            ]
+        );
+
         $admin = User::updateOrCreate(
             ['username' => 'admin'],
             [
-                'password'    => Hash::make('1234567'), 
-                'fullname'    => 'System Administrator',
-                'employee_id' => 'ADMIN-000',      // Placeholder so database rules pass
-                'birthdate'   => '1990-01-01',     // Placeholder so database rules pass
-                'office'      => 'Main Office',
-                'division'    => 'IT Division',
-                'position'    => 'Super Admin',
-                'role'        => 'Admin',
-                'status'      => 'Active',
-            ]
+                'password' => Hash::make('1234567'),
+                'first_name' => 'System',
+                'last_name' => 'Admin',
+                'employee_id' => 'ADMIN-000',
+                'birthdate' => '1990-01-01',
+                'position' => 'Admin',
+                'is_active' => true,
+                'email' => 'admin@example.com',
+            ],
         );
+
+        $admin->syncRoles([$adminRole]);
     }
 }
