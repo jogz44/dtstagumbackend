@@ -242,7 +242,11 @@ class DocumentController extends Controller
             }
 
             if ($validated['is_internal'] ?? false) {
-                $validated['origin_sender'] = $user->office?->name ?? $user->full_name;
+                // Only default origin_sender to the registrar's office if none was explicitly provided.
+                // Do NOT overwrite it — the user may have intentionally typed a different origin.
+                if (empty($validated['origin_sender'])) {
+                    $validated['origin_sender'] = $user->office?->name ?? $user->full_name;
+                }
             }
 
             if ($validated['self_assign'] ?? false) {
@@ -963,11 +967,22 @@ class DocumentController extends Controller
     }
 
     /**
-     * Admin-only: reassign a document to another user within their office.
+     * Reassign a document to another user within their office.
+     * Allowed for: admins, supervisors, or the current holder of the document.
      */
     public function reassign(Request $request, Document $document): JsonResponse
     {
         $user = $request->user();
+
+        $roleName = strtolower($user->roles->first()?->name ?? '');
+        $isAdmin = $user->username === 'admin' || $user->hasAnyRole(RoleNames::adminRoles());
+        $isSupervisor = $roleName === 'supervisor';
+        $isCurrentHolder = $document->assigned_user === $user->full_name
+            || $document->assigned_user === $user->id;
+
+        if (! $isAdmin && ! $isSupervisor && ! $isCurrentHolder) {
+            return response()->json(['message' => 'You are not authorized to reassign this document.'], 403);
+        }
 
         $validated = $request->validate([
             'assigned_user' => 'required|string',
@@ -1045,6 +1060,12 @@ class DocumentController extends Controller
             return response()->json(['message' => 'Could not resolve the assigned user.'], 422);
         }
 
+        // Delete any existing notifications for this document and user first, so that the unique keys are cleared and a new notification is generated.
+        \App\Models\Notification::where('document_id', $document->id)
+            ->where('user_id', $targetUser->id)
+            ->delete();
+
+        app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $user);
         app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
 
         DocumentHistory::record($document, 'FORCE_NOTIFIED', $user, [

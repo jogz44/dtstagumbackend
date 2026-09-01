@@ -116,7 +116,7 @@ class UserController extends Controller
     public function show(Request $request, User $user): JsonResponse
     {
         $this->authorizeUserView($request->user(), $user);
-        $user->loadMissing(['office', 'division', 'roles', 'pmisEmployee']);
+        $user->loadMissing(['office', 'division', 'roles', 'pmisEmployee', 'permissionOverrides']);
 
         return (new UserAccessResource($user))->response();
     }

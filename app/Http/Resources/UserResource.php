@@ -64,11 +64,48 @@ class UserResource extends JsonResource
                     ])
                     ->values()
                 : [],
+            // Effective, per-user permission set: role/direct Spatie permissions
+            // with this user's individual grant/deny overrides applied on top.
+            // Only computed when the overrides relation was eager-loaded, so this
+            // never fires an extra query on resources that don't need it.
+            'effective_permissions' => $this->relationLoaded('permissionOverrides')
+                ? $this->effectivePermissionNames()
+                : null,
             'last_login_at' => $this->last_login_at?->toIso8601String(),
             'deleted_at' => $this->deleted_at?->toIso8601String(),
             'created_at' => $this->created_at?->toIso8601String(),
             'updated_at' => $this->updated_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Role/direct Spatie permissions for this user, with this user's
+     * individual overrides (from user_permission_overrides) layered on top:
+     * a "deny" removes a permission the role/direct assignment would
+     * otherwise grant, a "grant" adds one the role wouldn't otherwise have.
+     *
+     * Admins are intentionally excluded from overrides elsewhere in the app
+     * (see UserAccessService), so this stays a plain merge with no special
+     * casing needed here.
+     */
+    private function effectivePermissionNames(): array
+    {
+        $basePermissionNames = $this->getAllPermissions()->pluck('name');
+
+        $denies = $this->permissionOverrides
+            ->where('effect', 'deny')
+            ->pluck('permission_name');
+
+        $grants = $this->permissionOverrides
+            ->where('effect', 'grant')
+            ->pluck('permission_name');
+
+        return $basePermissionNames
+            ->diff($denies)
+            ->merge($grants)
+            ->unique()
+            ->values()
+            ->all();
     }
 
     private function permissionLabel(string $name): string

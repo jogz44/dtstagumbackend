@@ -62,7 +62,7 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        $user = $request->user()->load(['roles', 'office', 'division', 'permissions']);
+        $user = $request->user()->load(['roles', 'office', 'division', 'permissions', 'permissionOverrides']);
 
         return UserResource::make($user);
     });
