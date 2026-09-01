@@ -45,7 +45,7 @@ class Document extends Model
         'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'document_type',
         'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
-        'assigned_user', 'is_read_only', 'status', 'due_date', 'notes',
+        'assigned_user', 'is_read_only', 'status', 'completed_at', 'due_date', 'notes',
     ];
 
     protected function casts(): array
@@ -56,8 +56,44 @@ class Document extends Model
             'send_to_all' => 'boolean',
             'is_internal' => 'boolean',
             'is_read_only' => 'boolean',
+            'completed_at' => 'datetime',
             'due_date' => 'date:Y-m-d',
         ];
+    }
+
+    /**
+     * Automatically archive documents that have remained completed for 1 month and 1 week.
+     */
+    public static function autoArchiveCompleted(): int
+    {
+        $threshold = now()->subMonth()->subWeek();
+
+        $expiredDocs = static::where('status', 'completed')
+            ->where(function ($query) use ($threshold) {
+                $query->where('completed_at', '<=', $threshold)
+                    ->orWhere(function ($q) use ($threshold) {
+                        $q->whereNull('completed_at')
+                            ->where('updated_at', '<=', $threshold);
+                    });
+            })
+            ->get();
+
+        $count = 0;
+        foreach ($expiredDocs as $doc) {
+            $statusBefore = $doc->status;
+            $doc->update([
+                'status' => 'archived',
+            ]);
+
+            DocumentHistory::record($doc, 'archived', null, [
+                'remarks' => 'Automatically archived after being completed for 1 month and 1 week.',
+                'status_before' => $statusBefore,
+                'status_after' => 'archived',
+            ]);
+            $count++;
+        }
+
+        return $count;
     }
 
     public function creator(): BelongsTo

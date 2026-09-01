@@ -27,8 +27,10 @@ use Illuminate\Support\Str;
 
 class DocumentController extends Controller
 {
-    public function index(Request $request, DocumentAttentionService $attentionService): JsonResponse
+    public function index(Request $request, Document $documentModel, DocumentAttentionService $attentionService): JsonResponse
     {
+        Document::autoArchiveCompleted();
+
         $tab = $request->query('tab', 'my');
         $user = $request->user();
         $query = $request->query('attention') === 'due'
@@ -198,11 +200,11 @@ class DocumentController extends Controller
         $events = DocumentHistory::query()
             ->where('document_id', $document->id)
             ->with([
-                'user:id,first_name,last_name,username,is_active,office_id',
+                'user:id,first_name,last_name,username,position,is_active,office_id',
                 'user.office:id,name,short_name',
-                'fromUser:id,first_name,last_name,username,is_active,office_id',
+                'fromUser:id,first_name,last_name,username,position,is_active,office_id',
                 'fromUser.office:id,name,short_name',
-                'toUser:id,first_name,last_name,username,is_active,office_id',
+                'toUser:id,first_name,last_name,username,position,is_active,office_id',
                 'toUser.office:id,name,short_name',
             ])
             ->oldest('created_at')
@@ -249,37 +251,13 @@ class DocumentController extends Controller
                 }
             }
 
-            if ($validated['self_assign'] ?? false) {
-                $validated['office_assignment'] = $user->office?->name;
-                $validated['division_assignment'] = $user->division?->name;
-                $validated['assigned_user'] = $user->full_name;
-            }
-
-            $userOffice = $user->office?->name;
-            $destOffice = $validated['office_assignment'] ?? null;
-
-            // Similarity check for same office
-            $isSameOffice = false;
-            if ($userOffice && $destOffice) {
-                $userClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $userOffice);
-                $userClean = trim(preg_replace('/\s+/', ' ', $userClean));
-
-                $destClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $destOffice);
-                $destClean = trim(preg_replace('/\s+/', ' ', $destClean));
-
-                if (stripos($userClean, $destClean) !== false || stripos($destClean, $userClean) !== false) {
-                    $isSameOffice = true;
-                }
-            }
-
-            $isSelf = $validated['self_assign'] ?? false;
-            if ($isSelf) {
-                $newStatus = 'registered';
-            } elseif ($isSameOffice) {
-                $newStatus = 'pending';
-            } else {
-                $newStatus = 'released';
-            }
+            // Registration is automatically self-assigned to the creator in their office and division
+            $validated['self_assign'] = true;
+            $validated['is_internal'] = true;
+            $validated['office_assignment'] = $user->office?->name;
+            $validated['division_assignment'] = $user->division?->name;
+            $validated['assigned_user'] = $user->full_name;
+            $newStatus = 'pending';
 
             // Resolve target user if possible
             $targetUser = null;
@@ -501,11 +479,13 @@ class DocumentController extends Controller
         }
 
         $officeName = $user?->relationLoaded('office') && $user->office ? ($user->office->name ?? $user->office->short_name) : null;
+        $position = $user?->position;
 
         return [
             'id' => $user?->id,
             'name' => $name,
             'office' => $officeName,
+            'position' => $position,
             'is_active' => $user?->is_active,
         ];
     }
@@ -622,7 +602,7 @@ class DocumentController extends Controller
             'office_assignment' => $destOffice,
             'division_assignment' => $destDivision,
             'assigned_user' => $assignedName,
-            'status' => 'transferred',
+            'status' => 'pending',
         ]);
 
         $remarks = ! empty($validated['remarks']) ? $validated['remarks'] : 'Document transferred.';
@@ -632,9 +612,9 @@ class DocumentController extends Controller
             'to_division_id' => $targetUser?->division_id,
             'remarks' => $remarks,
             'from_office' => $fromOffice,
-            'to_office' => $destOffice,
+            'to_office' => null,
             'status_before' => $statusBefore,
-            'status_after' => 'transferred',
+            'status_after' => 'pending',
             'metadata' => [
                 'assigned_name' => $document->assigned_user,
             ],
@@ -714,6 +694,12 @@ class DocumentController extends Controller
 
     public function archive(Request $request, Document $document): JsonResponse
     {
+        if (strtolower((string) $document->status) !== 'completed') {
+            return response()->json([
+                'message' => 'Only completed documents can be archived.',
+            ], 422);
+        }
+
         $statusBefore = $document->status;
 
         $document->update([
@@ -807,6 +793,7 @@ class DocumentController extends Controller
 
         $document->update([
             'status' => 'completed',
+            'completed_at' => now(),
             'remarks' => $validated['remarks'] ?? null,
         ]);
 
@@ -878,6 +865,7 @@ class DocumentController extends Controller
 
         $document->update([
             'status' => 'registered',
+            'completed_at' => null,
         ]);
 
         DocumentHistory::record($document, 'RETRIEVED', $request->user(), [
@@ -1279,12 +1267,14 @@ class DocumentController extends Controller
             'status' => 'pending',
         ]);
 
+        $remarks = $request->filled('remarks') ? $request->input('remarks') : null;
+
         $document->acknowledgements()->create([
             'user_id' => $user->id,
             'assigned_name' => $user->full_name,
             'from_office' => $fromOffice,
             'acknowledged_at' => now(),
-            'remarks' => $request->input('remarks') ?: 'Document received.',
+            'remarks' => $remarks,
         ]);
 
         DocumentHistory::record($document, DocumentHistory::RECEIVED, $user, [
@@ -1292,7 +1282,7 @@ class DocumentController extends Controller
             'to_division_id' => $user->division_id,
             'from_office' => $fromOffice,
             'to_office' => $userOffice,
-            'remarks' => $request->input('remarks') ?: 'Document received.',
+            'remarks' => $remarks,
             'status_before' => $statusBefore,
             'status_after' => 'pending',
             'metadata' => [
@@ -1311,6 +1301,54 @@ class DocumentController extends Controller
         ]);
     }
 
+    public function resolveDocumentByTracking(string $code): ?Document
+    {
+        $cleaned = trim($code);
+        if (preg_match('/(?:track[\/=]|document-tracking\/|documents\/)(DOC-[A-Z0-9_-]+)/i', $cleaned, $matches)) {
+            $cleaned = $matches[1];
+        } elseif (preg_match('/(DOC-[A-Z0-9_-]+)/i', $cleaned, $matches)) {
+            $cleaned = $matches[1];
+        }
+
+        // 1. Direct exact or lowercase match / ID match
+        $doc = Document::whereRaw('LOWER(tracking_number) = ?', [strtolower($cleaned)])
+            ->orWhere('id', $cleaned)
+            ->first();
+
+        if ($doc) {
+            return $doc;
+        }
+
+        // 2. Resilient match: 0 (zero) <-> O (letter O)
+        $variantZeroToO = str_replace('0', 'O', strtoupper($cleaned));
+        $variantOToZero = str_replace('O', '0', strtoupper($cleaned));
+
+        $doc = Document::whereRaw('UPPER(REPLACE(tracking_number, "0", "O")) = ?', [$variantZeroToO])
+            ->orWhereRaw('UPPER(REPLACE(tracking_number, "O", "0")) = ?', [$variantOToZero])
+            ->first();
+
+        if ($doc) {
+            return $doc;
+        }
+
+        // 3. Fallback: match without dashes/spaces with 0/O variations
+        $stripped = preg_replace('/[^A-Z0-9]/i', '', $cleaned);
+        if ($stripped) {
+            $strippedZeroToO = str_replace('0', 'O', strtoupper($stripped));
+            $strippedOToZero = str_replace('O', '0', strtoupper($stripped));
+
+            $doc = Document::whereRaw('UPPER(REPLACE(REPLACE(tracking_number, "-", ""), "0", "O")) = ?', [$strippedZeroToO])
+                ->orWhereRaw('UPPER(REPLACE(REPLACE(tracking_number, "-", ""), "O", "0")) = ?', [$strippedOToZero])
+                ->first();
+
+            if ($doc) {
+                return $doc;
+            }
+        }
+
+        return null;
+    }
+
     public function receiveByCode(Request $request): JsonResponse
     {
         $request->validate([
@@ -1319,21 +1357,11 @@ class DocumentController extends Controller
         ]);
 
         $rawCode = trim((string) $request->input('code'));
-
-        $trackingNumber = $rawCode;
-        if (preg_match('/(?:track[\/=]|document-tracking\/|documents\/)(DOC-[A-Z0-9_-]+)/i', $rawCode, $matches)) {
-            $trackingNumber = $matches[1];
-        } elseif (preg_match('/(DOC-[A-Z0-9_-]+)/i', $rawCode, $matches)) {
-            $trackingNumber = $matches[1];
-        }
-
-        $document = Document::whereRaw('LOWER(tracking_number) = ?', [strtolower($trackingNumber)])
-            ->orWhere('id', $trackingNumber)
-            ->first();
+        $document = $this->resolveDocumentByTracking($rawCode);
 
         if (! $document) {
             return response()->json([
-                'message' => "No document found matching tracking number '{$trackingNumber}'.",
+                'message' => "No document found matching tracking number '{$rawCode}'.",
             ], 404);
         }
 
@@ -1342,22 +1370,20 @@ class DocumentController extends Controller
 
     public function getByTracking(Request $request, string $trackingNumber): JsonResponse
     {
-        $cleaned = trim($trackingNumber);
-        $document = Document::whereRaw('LOWER(tracking_number) = ?', [strtolower($cleaned)])
-            ->orWhere('id', $cleaned)
-            ->with([
-                'creator',
-                'creator.office',
-                'attachments',
-                'acknowledgements' => fn ($q) => $q->latest(),
-            ])
-            ->first();
+        $document = $this->resolveDocumentByTracking($trackingNumber);
 
         if (! $document) {
             return response()->json([
                 'message' => 'Document not found.',
             ], 404);
         }
+
+        $document->loadMissing([
+            'creator',
+            'creator.office',
+            'attachments',
+            'acknowledgements' => fn ($q) => $q->latest(),
+        ]);
 
         return response()->json([
             'data' => $document,
@@ -1366,16 +1392,7 @@ class DocumentController extends Controller
 
     public function publicTrack(Request $request, string $trackingNumber): JsonResponse
     {
-        $cleaned = trim($trackingNumber);
-        $document = Document::whereRaw('LOWER(tracking_number) = ?', [strtolower($cleaned)])
-            ->orWhere('id', $cleaned)
-            ->with([
-                'creator',
-                'creator.office',
-                'attachments',
-                'histories' => fn ($q) => $q->with(['user.office', 'user.division', 'toUser'])->latest(),
-            ])
-            ->first();
+        $document = $this->resolveDocumentByTracking($trackingNumber);
 
         if (! $document) {
             return response()->json([
@@ -1383,11 +1400,18 @@ class DocumentController extends Controller
             ], 404);
         }
 
+        $document->loadMissing([
+            'creator',
+            'creator.office',
+            'attachments',
+            'histories' => fn ($q) => $q->with(['user.office', 'user.division', 'toUser'])->latest(),
+        ]);
+
         $timeline = $document->histories->map(function ($h) {
             $action = strtoupper($h->action);
             $performerName = $h->user ? $h->user->full_name : 'System';
-            $performerOffice = $h->user?->office?->name ?? $h->from_office ?? '';
-            $performer = $performerOffice ? "By {$performerName} - {$performerOffice}" : "By {$performerName}";
+            $performerPosition = $h->user?->position ?? '';
+            $performer = $performerPosition ? "By {$performerName} - {$performerPosition}" : "By {$performerName}";
 
             $title = match ($action) {
                 'REGISTERED' => 'Document registered',
@@ -1402,8 +1426,17 @@ class DocumentController extends Controller
             };
 
             $route = null;
-            if ($h->from_office && $h->to_office && $h->from_office !== $h->to_office) {
-                $route = "{$h->from_office} → {$h->to_office}";
+            if ($action === 'RECEIVED') {
+                $route = $h->to_office ?: $h->user?->office?->name ?: $h->from_office;
+            } elseif ($action === 'TRANSFERRED') {
+                $route = $h->from_office ?: null;
+            } else {
+                $route = $h->to_office ?: $h->from_office ?: null;
+            }
+
+            $remarks = $h->remarks;
+            if ($action === 'RECEIVED' || in_array(trim((string) $remarks), ['Document physically received via QR scan.', 'Document received.', 'Document registered.', ''])) {
+                $remarks = null;
             }
 
             return [
@@ -1412,7 +1445,7 @@ class DocumentController extends Controller
                 'title' => $title,
                 'performer' => $performer,
                 'route' => $route,
-                'remarks' => $h->remarks,
+                'remarks' => $remarks,
                 'timestamp' => $h->created_at ? $h->created_at->format('M d, Y, h:i A') : '',
             ];
         });

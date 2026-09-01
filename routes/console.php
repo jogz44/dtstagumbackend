@@ -19,3 +19,7 @@ Schedule::command('documents:send-deadline-notifications')
     ->hourly()
     ->withoutOverlapping();
 
+Schedule::command('documents:auto-archive')
+    ->daily()
+    ->withoutOverlapping();
+
