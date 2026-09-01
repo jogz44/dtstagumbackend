@@ -602,80 +602,52 @@ class DocumentController extends Controller
 
         $statusBefore = $document->status;
         $fromOffice = $document->office_assignment ?? $document->origin_sender;
+        $currentUser = $request->user();
 
-        $userOffice = $request->user()->office?->name;
         $destOffice = $validated['office_assignment'] ?? $document->office_assignment;
-
-        // Similarity check for same office
-        $isSameOffice = false;
-        if ($userOffice && $destOffice) {
-            $userClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $userOffice);
-            $userClean = trim(preg_replace('/\s+/', ' ', $userClean));
-
-            $destClean = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $destOffice);
-            $destClean = trim(preg_replace('/\s+/', ' ', $destClean));
-
-            if (stripos($userClean, $destClean) !== false || stripos($destClean, $userClean) !== false) {
-                $isSameOffice = true;
-            }
-        }
-
-        $newStatus = $isSameOffice ? 'pending' : 'released';
-        $historyAction = $isSameOffice ? DocumentHistory::ASSIGNED : DocumentHistory::RELEASED;
-
-        // Resolve target user
-        $targetUser = null;
+        $destDivision = $validated['division_assignment'] ?? null;
         $assignedName = $validated['assigned_user'] ?? null;
+
+        $targetUser = null;
         if ($assignedName && $assignedName !== '-Select user-' && $assignedName !== '-Select office first-') {
-            // First try resolving by ID (like in release)
             $targetUser = User::find($assignedName);
             if ($targetUser) {
                 $assignedName = $targetUser->full_name;
             } else {
-                // Resolve by full name string
                 $targetUser = $this->resolveAssignedUser($assignedName);
             }
         }
 
         $document->update([
             'office_assignment' => $destOffice,
-            'division_assignment' => $validated['division_assignment'] ?? null,
+            'division_assignment' => $destDivision,
             'assigned_user' => $assignedName,
-            'status' => $newStatus,
+            'status' => 'transferred',
         ]);
 
-        if ($targetUser) {
-            $acknowledgement = $document->acknowledgements()->create([
-                'user_id' => $targetUser->id,
-                'assigned_name' => $assignedName,
-                'from_office' => $request->user()->office?->name,
-                'remarks' => $isSameOffice ? 'Pending acknowledgement.' : 'Pending acknowledgement (Released).',
-            ]);
+        $remarks = ! empty($validated['remarks']) ? $validated['remarks'] : 'Document transferred.';
 
-            app(DocumentNotificationService::class)->notifyReceived(
-                $document,
-                $targetUser,
-                $request->user(),
-                $acknowledgement->id,
-            );
-        }
-
-        DocumentHistory::record($document, $historyAction, $request->user(), [
+        DocumentHistory::record($document, DocumentHistory::TRANSFERRED, $currentUser, [
             'to_user_id' => $targetUser?->id,
             'to_division_id' => $targetUser?->division_id,
-            'remarks' => $validated['remarks'] ?? ($isSameOffice ? 'Document transferred.' : 'Document physically released.'),
+            'remarks' => $remarks,
             'from_office' => $fromOffice,
-            'to_office' => $document->office_assignment,
+            'to_office' => $destOffice,
             'status_before' => $statusBefore,
-            'status_after' => $newStatus,
+            'status_after' => 'transferred',
             'metadata' => [
                 'assigned_name' => $document->assigned_user,
             ],
         ]);
 
         return response()->json([
-            'message' => 'Document processed successfully.',
-            'document' => $document->fresh(),
+            'message' => 'Document transferred successfully.',
+            'document' => $document->fresh([
+                'creator',
+                'creator.office',
+                'attachments',
+                'acknowledgements' => fn ($q) => $q->latest(),
+            ]),
         ]);
     }
 
@@ -1290,5 +1262,176 @@ class DocumentController extends Controller
             ->exists();
 
         abort_unless($isAuthorized, 403, 'You are not authorized to view this document.');
+    }
+
+    public function receive(Request $request, Document $document): JsonResponse
+    {
+        $user = $request->user();
+        $userOffice = $user->office?->name ?? 'HR Division';
+        $userDivision = $user->division?->name;
+        $statusBefore = $document->status;
+        $fromOffice = $document->office_assignment ?? $document->origin_sender;
+
+        $document->update([
+            'office_assignment' => $userOffice,
+            'division_assignment' => $userDivision,
+            'assigned_user' => $user->full_name,
+            'status' => 'pending',
+        ]);
+
+        $document->acknowledgements()->create([
+            'user_id' => $user->id,
+            'assigned_name' => $user->full_name,
+            'from_office' => $fromOffice,
+            'acknowledged_at' => now(),
+            'remarks' => $request->input('remarks') ?: 'Document received.',
+        ]);
+
+        DocumentHistory::record($document, DocumentHistory::RECEIVED, $user, [
+            'to_user_id' => $user->id,
+            'to_division_id' => $user->division_id,
+            'from_office' => $fromOffice,
+            'to_office' => $userOffice,
+            'remarks' => $request->input('remarks') ?: 'Document received.',
+            'status_before' => $statusBefore,
+            'status_after' => 'pending',
+            'metadata' => [
+                'assigned_name' => $user->full_name,
+            ],
+        ]);
+
+        return response()->json([
+            'message' => 'Document received successfully.',
+            'document' => $document->fresh([
+                'creator',
+                'creator.office',
+                'attachments',
+                'acknowledgements' => fn ($q) => $q->latest(),
+            ]),
+        ]);
+    }
+
+    public function receiveByCode(Request $request): JsonResponse
+    {
+        $request->validate([
+            'code' => 'required|string',
+            'remarks' => 'nullable|string',
+        ]);
+
+        $rawCode = trim((string) $request->input('code'));
+
+        $trackingNumber = $rawCode;
+        if (preg_match('/(?:track[\/=]|document-tracking\/|documents\/)(DOC-[A-Z0-9_-]+)/i', $rawCode, $matches)) {
+            $trackingNumber = $matches[1];
+        } elseif (preg_match('/(DOC-[A-Z0-9_-]+)/i', $rawCode, $matches)) {
+            $trackingNumber = $matches[1];
+        }
+
+        $document = Document::whereRaw('LOWER(tracking_number) = ?', [strtolower($trackingNumber)])
+            ->orWhere('id', $trackingNumber)
+            ->first();
+
+        if (! $document) {
+            return response()->json([
+                'message' => "No document found matching tracking number '{$trackingNumber}'.",
+            ], 404);
+        }
+
+        return $this->receive($request, $document);
+    }
+
+    public function getByTracking(Request $request, string $trackingNumber): JsonResponse
+    {
+        $cleaned = trim($trackingNumber);
+        $document = Document::whereRaw('LOWER(tracking_number) = ?', [strtolower($cleaned)])
+            ->orWhere('id', $cleaned)
+            ->with([
+                'creator',
+                'creator.office',
+                'attachments',
+                'acknowledgements' => fn ($q) => $q->latest(),
+            ])
+            ->first();
+
+        if (! $document) {
+            return response()->json([
+                'message' => 'Document not found.',
+            ], 404);
+        }
+
+        return response()->json([
+            'data' => $document,
+        ]);
+    }
+
+    public function publicTrack(Request $request, string $trackingNumber): JsonResponse
+    {
+        $cleaned = trim($trackingNumber);
+        $document = Document::whereRaw('LOWER(tracking_number) = ?', [strtolower($cleaned)])
+            ->orWhere('id', $cleaned)
+            ->with([
+                'creator',
+                'creator.office',
+                'attachments',
+                'histories' => fn ($q) => $q->with(['user.office', 'user.division', 'toUser'])->latest(),
+            ])
+            ->first();
+
+        if (! $document) {
+            return response()->json([
+                'message' => 'Document not found.',
+            ], 404);
+        }
+
+        $timeline = $document->histories->map(function ($h) {
+            $action = strtoupper($h->action);
+            $performerName = $h->user ? $h->user->full_name : 'System';
+            $performerOffice = $h->user?->office?->name ?? $h->from_office ?? '';
+            $performer = $performerOffice ? "By {$performerName} - {$performerOffice}" : "By {$performerName}";
+
+            $title = match ($action) {
+                'REGISTERED' => 'Document registered',
+                'TRANSFERRED' => "Document transferred",
+                'RECEIVED' => 'Document received',
+                'EDITED' => 'Document edited',
+                'COMPLETED' => 'Document completed',
+                'RELEASED' => 'Document released',
+                'RETURNED' => 'Document returned',
+                'ASSIGNED' => "Document assigned to " . ($h->toUser?->full_name ?? $h->metadata['assigned_name'] ?? 'Staff'),
+                default => 'Document ' . strtolower($action),
+            };
+
+            $route = null;
+            if ($h->from_office && $h->to_office && $h->from_office !== $h->to_office) {
+                $route = "{$h->from_office} → {$h->to_office}";
+            }
+
+            return [
+                'id' => $h->id,
+                'action' => $action,
+                'title' => $title,
+                'performer' => $performer,
+                'route' => $route,
+                'remarks' => $h->remarks,
+                'timestamp' => $h->created_at ? $h->created_at->format('M d, Y, h:i A') : '',
+            ];
+        });
+
+        return response()->json([
+            'document' => [
+                'id' => $document->id,
+                'tracking_number' => $document->tracking_number,
+                'particular' => $document->description,
+                'document_type' => $document->document_type,
+                'priority' => $document->priority_level,
+                'origin' => $document->origin_sender ?? $document->office_assignment ?? 'City HR Office',
+                'contact_person' => $document->sender_name ?? $document->creator?->full_name ?? 'HR Officer',
+                'contact_number' => $document->creator?->phone ?? $document->creator?->contact_number ?? '0956-477-897',
+                'status' => $document->status,
+                'due_date' => $document->due_date?->format('M d, Y'),
+                'created_at' => $document->created_at?->format('M d, Y'),
+            ],
+            'timeline' => $timeline,
+        ]);
     }
 }

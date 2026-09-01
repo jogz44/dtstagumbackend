@@ -57,6 +57,10 @@ Route::post('/login', function (Request $request) {
     ], 401);
 });
 
+// Public Guest Tracking & Lookup
+Route::get('/public/track/{trackingNumber}', [DocumentController::class, 'publicTrack']);
+Route::get('/documents/by-tracking/{trackingNumber}', [DocumentController::class, 'getByTracking']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
         $user = $request->user()->load(['roles', 'office', 'division', 'permissions', 'permissionOverrides']);
@@ -129,6 +133,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/document-tracking/search', [DocumentTrackingController::class, 'search']);
         Route::put('/documents/{document}', [DocumentController::class, 'update']);
         Route::post('/documents/{document}/transfer', [DocumentController::class, 'transfer']);
+        Route::post('/documents/{document}/receive', [DocumentController::class, 'receive']);
+        Route::post('/documents/receive-by-code', [DocumentController::class, 'receiveByCode']);
         Route::post('/documents/{document}/release', [DocumentController::class, 'release']);
         Route::post('/documents/{document}/archive', [DocumentController::class, 'archive']);
         Route::post('/documents/{document}/share', [DocumentController::class, 'share']);
