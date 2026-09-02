@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Office;
 use App\Models\Division;
+use App\Models\Office;
+use App\Models\PmisEmployee;
+use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -28,12 +30,12 @@ class OrganizationController extends Controller
                         ->get();
                     $synced = true;
                 } catch (\Exception $e) {
-                    Log::warning("Could not synchronize offices/divisions from pmis2003.vwActive: " . $e->getMessage());
+                    Log::warning('Could not synchronize offices/divisions from pmis2003.vwActive: '.$e->getMessage());
                 }
             }
 
             // Fallback mock seeding if PMIS was offline/failed and we have no offices locally
-            if (!$synced && Office::where('is_active', true)->count() === 0) {
+            if (! $synced && Office::where('is_active', true)->count() === 0) {
                 $pmisRecords = collect([
                     (object) ['office' => 'Office of the City Mayor', 'divisions' => 'Administrative Support'],
                     (object) ['office' => 'Office of the City Mayor', 'divisions' => 'Legal Section'],
@@ -46,23 +48,23 @@ class OrganizationController extends Controller
             // Synchronize the offices and divisions to the local lgudts database
             foreach ($pmisRecords as $record) {
                 $officeName = $record->office ? trim((string) $record->office) : null;
-                $divisionName = $record->divisions ? trim((string) $record->divisions) : null;
+                $divisionName = (isset($record->division) ? $record->division : ($record->divisions ?? null)) ? trim((string) (isset($record->division) ? $record->division : $record->divisions)) : null;
 
                 if ($officeName) {
-                    $officeCode = Str::upper(Str::limit(Str::slug($officeName), 40, '')) . '-' . substr(md5($officeName), 0, 5);
+                    $officeCode = Str::upper(Str::limit(Str::slug($officeName), 40, '')).'-'.substr(md5($officeName), 0, 5);
 
-                    $office = Office::withTrashed()->updateOrCreate(
+                     $office = Office::withTrashed()->updateOrCreate(
                         ['name' => $officeName],
                         [
                             'code' => $officeCode,
-                            'short_name' => $officeName,
+                            'short_name' => substr($officeName, 0, 100),
                             'is_active' => true,
                             'deleted_at' => null,
                         ]
                     );
 
                     if ($divisionName) {
-                        $divisionCode = Str::upper(Str::limit(Str::slug($divisionName), 40, '')) . '-' . substr(md5($divisionName), 0, 5);
+                        $divisionCode = Str::upper(Str::limit(Str::slug($divisionName), 40, '')).'-'.substr(md5($divisionName), 0, 5);
 
                         Division::withTrashed()->updateOrCreate(
                             [
@@ -71,7 +73,7 @@ class OrganizationController extends Controller
                             ],
                             [
                                 'code' => $divisionCode,
-                                'short_name' => $divisionName,
+                                'short_name' => substr($divisionName, 0, 100),
                                 'is_active' => true,
                                 'deleted_at' => null,
                             ]
@@ -95,55 +97,97 @@ class OrganizationController extends Controller
     public function getOfficeUsers(): JsonResponse
     {
         $officeName = request('office');
-        if (!$officeName) {
+        $divisionName = request('division');
+
+        if (! $officeName) {
             return response()->json([]);
         }
 
-        $users = [];
+        // Always try local database first for structured results with IDs
+        $office = Office::where('name', $officeName)->first();
+        if ($office) {
+            $localQuery = User::where('office_id', $office->id)
+                ->where('is_active', true);
 
-        if ($this->checkPmisOnline()) {
-            try {
-                $pmisUsers = DB::connection('pmis')
-                    ->table('vwActive')
-                    ->where('office', $officeName)
-                    ->select('Name1')
-                    ->distinct()
-                    ->orderBy('Name1')
-                    ->get();
+            // Filter by division if provided
+            if ($divisionName) {
+                $localQuery->whereHas('division', function ($q) use ($divisionName) {
+                    $q->where('name', $divisionName);
+                });
+            }
 
-                $users = $pmisUsers->pluck('Name1')->filter()->values()->all();
-            } catch (\Exception $e) {
-                Log::warning("Could not query office users from pmis2003.vwActive: " . $e->getMessage());
+            $localUsers = $localQuery->get();
+
+            if ($localUsers->isNotEmpty()) {
+                return response()->json($localUsers->map(fn ($u) => [
+                    'id' => $u->id,
+                    'name' => $u->full_name,
+                    'first_name' => $u->first_name,
+                    'last_name' => $u->last_name,
+                    'username' => $u->username,
+                    'position' => $u->position,
+                    'office_id' => $u->office_id,
+                    'division_id' => $u->division_id,
+                ]));
             }
         }
 
-        // If pmis query failed or returned empty, fallback to local users of the office
-        if (empty($users)) {
-            $office = Office::where('name', $officeName)->first();
-            if ($office) {
-                // Find users in local database belonging to this office
-                $localUsers = \App\Models\User::where('office_id', $office->id)
-                    ->where('is_active', true)
-                    ->get();
+        // Fallback: try PMIS for names (no IDs available)
+        if ($this->checkPmisOnline()) {
+            try {
+                $pmisQuery = DB::connection('pmis')
+                    ->table('vwActive')
+                    ->where('office', $officeName);
 
-                if ($localUsers->isNotEmpty()) {
-                    $users = $localUsers->map(fn($u) => $u->first_name . ' ' . $u->last_name)->all();
+                if ($divisionName) {
+                    $pmisQuery->where('division', $divisionName);
                 }
+
+                $pmisQuery->select('Name1')
+                    ->distinct()
+                    ->orderBy('Name1');
+
+                $pmisUsers = $pmisQuery->get();
+                $names = $pmisUsers->pluck('Name1')->filter()->values()->all();
+
+                if (! empty($names)) {
+                    return response()->json($names);
+                }
+            } catch (\Exception $e) {
+                Log::warning('Could not query office users from pmis2003.vwActive: '.$e->getMessage());
             }
+        }
+
+        // Fallback 2: try local synced pmis_employees table (real synced employee names)
+        try {
+            $localPmisQuery = PmisEmployee::where('office', $officeName);
+            if ($divisionName) {
+                $localPmisQuery->where('division', $divisionName);
+            }
+            $localPmisNames = $localPmisQuery->orderBy('last_name')
+                ->orderBy('first_name')
+                ->get()
+                ->map(fn ($emp) => trim(($emp->first_name ? $emp->first_name.' ' : '').$emp->last_name))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+
+            if (! empty($localPmisNames)) {
+                return response()->json($localPmisNames);
+            }
+        } catch (\Exception $e) {
+            Log::warning('Could not query local pmis_employees: '.$e->getMessage());
         }
 
         // Final mock fallback if still empty
-        if (empty($users)) {
-            $users = [
-                'Jacob Gabriel A. Dumdum',
-                'Bonna May Malnegro',
-                'Ariane Celocia',
-                'Joan D. Lanciola',
-                'Alvin C. Fernandez'
-            ];
-        }
-
-        return response()->json($users);
+        return response()->json([
+            'Jacob Gabriel A. Dumdum',
+            'Bonna May Malnegro',
+            'Ariane Celocia',
+            'Joan D. Lanciola',
+            'Alvin C. Fernandez',
+        ]);
     }
 
     private function checkPmisOnline(): bool
@@ -151,7 +195,7 @@ class OrganizationController extends Controller
         $host = config('database.connections.pmis.host');
         $port = config('database.connections.pmis.port', 1433);
 
-        if (!$host || $host === '127.0.0.1') {
+        if (! $host || $host === '127.0.0.1') {
             return false;
         }
 
@@ -159,6 +203,7 @@ class OrganizationController extends Controller
             $connection = @fsockopen($host, $port, $errno, $errstr, 0.5); // 500ms timeout
             if ($connection) {
                 fclose($connection);
+
                 return true;
             }
         } catch (\Throwable $e) {

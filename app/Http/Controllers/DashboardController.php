@@ -55,6 +55,7 @@ class DashboardController extends Controller
 
         $documentsQuery = \App\Models\Document::with('attachments')
             ->whereBetween('created_at', [$start, $end]);
+        $documentsQuery = $this->applyDashboardScope($documentsQuery, $request->user());
         $hasDueDate = Schema::hasColumn('documents', 'due_date');
         if ($hasDueDate && $request->filled('from')) {
             $documentsQuery->whereDate('due_date', '>=', $request->input('from'));
@@ -113,6 +114,7 @@ class DashboardController extends Controller
                         });
                     });
             });
+        $attentionQuery = $this->applyDashboardScope($attentionQuery, $request->user());
         if ($hasDueDate && $request->filled('from')) {
             $attentionQuery->whereDate('due_date', '>=', $request->input('from'));
         }
@@ -195,7 +197,8 @@ class DashboardController extends Controller
 {
     $range = $request->input('range', 'Today');
 
-    $query = DB::table('documents');
+    $query = \App\Models\Document::query();
+    $query = $this->applyDashboardScope($query, $request->user());
 
     switch ($range) {
         case 'This Week':
@@ -323,7 +326,7 @@ class DashboardController extends Controller
      */
     public function recentDocuments(Request $request)
     {
-        $documents = DB::table('documents')
+        $query = \App\Models\Document::query()
             ->leftJoin(
                 'document_attachments',
                 'documents.id',
@@ -345,8 +348,11 @@ class DashboardController extends Controller
                 'document_attachments.original_name as attachment_name',
                 'document_attachments.mime_type as attachment_mime_type',
                 'document_attachments.size as attachment_size'
-            )
-            ->orderByDesc('documents.created_at')
+            );
+
+        $query = $this->applyDashboardScope($query, $request->user());
+
+        $documents = $query->orderByDesc('documents.created_at')
             ->limit(10)
             ->get();
 
@@ -443,6 +449,44 @@ class DashboardController extends Controller
         return response()->json([
             'data' => $activities,
         ]);
+    }
+
+    private function applyDashboardScope($query, \App\Models\User $user)
+    {
+        $role = strtolower($user->roles->first()?->name ?? $user->role_name ?? '');
+        $officeName = $user->office?->name;
+        $divisionName = $user->division?->name;
+
+        if (in_array($role, ['admin', 'super_admin', 'administrator'], true)) {
+            // Admin: only documents within their office
+            return $query->where(function ($q) use ($officeName, $user) {
+                $q->where('office_assignment', $officeName)
+                  ->orWhereHas('creator', function ($qCreator) use ($user) {
+                      $qCreator->where('office_id', $user->office_id);
+                  });
+            });
+        } elseif ($role === 'supervisor') {
+            // Supervisor: division-level if division exists, otherwise office-level (like admin)
+            if ($divisionName) {
+                return $query->where('division_assignment', $divisionName);
+            } else {
+                return $query->where(function ($q) use ($officeName, $user) {
+                    $q->where('office_assignment', $officeName)
+                      ->orWhereHas('creator', function ($qCreator) use ($user) {
+                          $qCreator->where('office_id', $user->office_id);
+                      });
+                });
+            }
+        } else {
+            // Receiver / Standard user: only documents assigned to them or created by them
+            return $query->where(function ($q) use ($user) {
+                $q->where('created_by', $user->id)
+                  ->orWhere('assigned_user', $user->full_name)
+                  ->orWhere('assigned_user', $user->id)
+                  ->orWhere('assigned_user', $user->username)
+                  ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $user->id)->orWhere('assigned_name', $user->full_name));
+            });
+        }
     }
 
     /**

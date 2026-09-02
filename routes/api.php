@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\ActivityLogController;
+use App\Http\Controllers\AttentionSummaryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\DocumentTrackingController;
@@ -9,6 +10,7 @@ use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RoleController;
+use App\Http\Controllers\ScanSessionController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
@@ -55,9 +57,13 @@ Route::post('/login', function (Request $request) {
     ], 401);
 });
 
+// Public Guest Tracking & Lookup
+Route::get('/public/track/{trackingNumber}', [DocumentController::class, 'publicTrack']);
+Route::get('/documents/by-tracking/{trackingNumber}', [DocumentController::class, 'getByTracking']);
+
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        $user = $request->user()->load(['roles', 'office', 'division', 'permissions']);
+        $user = $request->user()->load(['roles', 'office', 'division', 'permissions', 'permissionOverrides']);
 
         return new \App\Http\Resources\UserResource($user);
     });
@@ -116,6 +122,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/reports', [ReportController::class, 'index']);
         Route::get('/documents', [DocumentController::class, 'index']);
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
+        Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
         Route::post('/documents', [DocumentController::class, 'store']);
         Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);
@@ -126,6 +133,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/document-tracking/search', [DocumentTrackingController::class, 'search']);
         Route::put('/documents/{document}', [DocumentController::class, 'update']);
         Route::post('/documents/{document}/transfer', [DocumentController::class, 'transfer']);
+        Route::post('/documents/{document}/receive', [DocumentController::class, 'receive']);
+        Route::post('/documents/receive-by-code', [DocumentController::class, 'receiveByCode']);
         Route::post('/documents/{document}/release', [DocumentController::class, 'release']);
         Route::post('/documents/{document}/archive', [DocumentController::class, 'archive']);
         Route::post('/documents/{document}/share', [DocumentController::class, 'share']);
@@ -134,7 +143,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve']);
         Route::get('/document-types', [DocumentController::class, 'getDocumentTypes']);
         Route::post('/documents/{document}/attachments', [DocumentController::class, 'addAttachment']);
+        Route::post('/documents/{document}/sync-scan', [DocumentController::class, 'syncScanSession']);
         Route::delete('/attachments/{attachment}', [DocumentController::class, 'deleteAttachment']);
+        Route::post('/documents/{document}/reassign', [DocumentController::class, 'reassign']);
+        Route::post('/documents/{document}/force-notify', [DocumentController::class, 'forceNotify']);
+        Route::get('/office-users', [DocumentController::class, 'officeUsers']);
         Route::get('/documents/{document}/messages', [DocumentController::class, 'getMessages']);
         Route::post('/documents/{document}/messages', [DocumentController::class, 'sendMessage']);
         Route::get('/organizations', [OrganizationController::class, 'index']);
@@ -162,10 +175,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/me/sessions/{tokenId}', [UserSecurityController::class, 'meRevokeSession']);
         Route::delete('/me/sessions', [UserSecurityController::class, 'meRevokeOtherSessions']);
 
-Route::get('/me/notifications', [NotificationController::class, 'index']);
-Route::get('/me/notifications/unread-count', [NotificationController::class, 'unreadCount']);
-Route::post('/me/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
-Route::post('/me/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::get('/me/attention-summary', AttentionSummaryController::class);
+        Route::get('/me/notifications', [NotificationController::class, 'index']);
+        Route::get('/me/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/me/notifications/{notification}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('/me/notifications/read-all', [NotificationController::class, 'markAllAsRead']);
+
         Route::match(['put', 'patch'], '/me', function (Request $request) {
             $user = $request->user();
 
@@ -211,3 +226,16 @@ Route::get('/test-pmis', function () {
         ], 500);
     }
 });
+
+/*
+ * ──────────────────────────────────────────────────────────────────────────────
+ *  SCAN SESSION ROUTES  (Public – no authentication required)
+ *  These endpoints are polled by the desktop and called by the mobile scanner.
+ * ──────────────────────────────────────────────────────────────────────────────
+ */
+Route::post('/scan-session', [ScanSessionController::class, 'store']);
+Route::get('/scan-session/{token}', [ScanSessionController::class, 'show']);
+Route::put('/scan-session/{token}/status', [ScanSessionController::class, 'updateStatus']);
+Route::post('/scan-session/{token}/pages', [ScanSessionController::class, 'storePage']);
+Route::get('/scan-session/{token}/pages/{pageId}/view', [ScanSessionController::class, 'viewPage'])->name('scan-pages.view');
+Route::get('/scan-session/{token}/download', [ScanSessionController::class, 'download']);

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Document;
 use App\Models\Notification;
 use App\Models\User;
+use App\Services\DocumentNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -48,7 +49,13 @@ class DocumentNotificationTest extends TestCase
             'type' => 'document.received',
         ]);
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertSame(1, Notification::query()
+            ->where('user_id', $receiver->id)
+            ->where('document_id', $document->id)
+            ->whereNull('read_at')
+            ->count());
+
+        $this->assertDatabaseMissing('notifications', [
             'user_id' => $receiver->id,
             'document_id' => $document->id,
             'type' => 'document.pending',
@@ -181,6 +188,36 @@ class DocumentNotificationTest extends TestCase
         // User A marking own notification as read should succeed
         $markOwnRes = $this->postJson("/api/me/notifications/{$notifA->id}/read");
         $markOwnRes->assertOk()->assertJsonPath('unread_count', 0);
+    }
+
+    public function test_assignment_notification_is_idempotent_per_event_and_allows_a_later_assignment(): void
+    {
+        $sender = $this->createUser('event_sender', 'Event', 'Sender');
+        $receiver = $this->createUser('event_receiver', 'Event', 'Receiver');
+        $document = Document::create([
+            'id' => (string) Str::uuid(),
+            'tracking_number' => 'DOC-EVENT-001',
+            'created_by' => $sender->id,
+            'origin_sender' => 'Sender Office',
+            'sender_name' => $sender->full_name,
+            'document_type' => 'Memo',
+            'priority_level' => 'Normal',
+            'description' => 'Repeat assignment test',
+            'status' => 'pending',
+        ]);
+        $notificationService = app(DocumentNotificationService::class);
+        $firstEventId = (string) Str::uuid();
+        $laterEventId = (string) Str::uuid();
+
+        $notificationService->notifyReceived($document, $receiver, $sender, $firstEventId);
+        $notificationService->notifyReceived($document, $receiver, $sender, $firstEventId);
+        $notificationService->notifyReceived($document, $receiver, $sender, $laterEventId);
+
+        $this->assertSame(2, Notification::query()
+            ->where('user_id', $receiver->id)
+            ->where('document_id', $document->id)
+            ->where('type', 'document.received')
+            ->count());
     }
 
     protected function createUser(string $username, string $firstName, string $lastName): User

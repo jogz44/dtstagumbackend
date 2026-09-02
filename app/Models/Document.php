@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 /**
  * @property string $id
@@ -30,10 +31,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * @property string|null $notes
  * @property \Illuminate\Support\Carbon|null $created_at
  * @property \Illuminate\Support\Carbon|null $updated_at
+ * @property \Illuminate\Support\Carbon|null $deleted_at
  */
 class Document extends Model
 {
-    use HasUuids;
+    use HasUuids, SoftDeletes;
 
     public $incrementing = false;
 
@@ -86,9 +88,10 @@ class Document extends Model
     public function scopeForMyDocuments($query, User $user)
     {
         $officeName = $user->office?->name;
+        $officeNames = self::getSimilarOfficeNames($officeName);
 
         return $query->where('status', '!=', 'archived')
-            ->where(function ($q) use ($user, $officeName) {
+            ->where(function ($q) use ($user, $officeNames) {
                 // Created by the user
                 $q->where('created_by', $user->id);
 
@@ -100,12 +103,17 @@ class Document extends Model
                 }
 
                 // Or assigned to their office
-                if ($officeName) {
-                    $q->orWhere('office_assignment', $officeName)
-                      ->orWhereHas('histories', function ($q3) use ($officeName) {
-                          $q3->where('to_office', $officeName);
+                if (!empty($officeNames)) {
+                    $q->orWhereIn('office_assignment', $officeNames)
+                      ->orWhereHas('histories', function ($q3) use ($officeNames) {
+                          $q3->whereIn('to_office', $officeNames);
                       });
                 }
+
+                // Or user has handled this document (performed any action in its history)
+                $q->orWhereHas('histories', function ($qHist) use ($user) {
+                    $qHist->where('performed_by', $user->id);
+                });
             });
     }
 
@@ -115,6 +123,7 @@ class Document extends Model
             ->where('status', '!=', 'archived')
             ->where(function ($q) use ($user) {
                 $officeName = $user->office?->name;
+                $officeNames = self::getSimilarOfficeNames($officeName);
 
                 if ($user->office_id) {
                     $q->whereHas('creator', function ($q2) use ($user) {
@@ -122,12 +131,12 @@ class Document extends Model
                     });
                 }
 
-                if ($officeName) {
-                    $q->orWhere('office_assignment', $officeName)
+                if (!empty($officeNames)) {
+                    $q->orWhereIn('office_assignment', $officeNames)
                       ->orWhere('send_to_all', true)
-                      ->orWhereHas('histories', function ($q3) use ($officeName) {
+                      ->orWhereHas('histories', function ($q3) use ($officeNames) {
                           $q3->where('action', 'SHARED')
-                             ->where('to_office', $officeName);
+                             ->whereIn('to_office', $officeNames);
                       });
                 } else {
                     $q->orWhere('send_to_all', true);
@@ -138,6 +147,7 @@ class Document extends Model
     public function scopeForIncoming($query, User $user)
     {
         $officeName = $user->office?->name;
+        $officeNames = self::getSimilarOfficeNames($officeName);
         $divisionName = $user->division?->name;
         $fullName = $user->full_name;
 
@@ -145,11 +155,11 @@ class Document extends Model
         $isAdmin = in_array($roleName, ['admin', 'administrator', 'system administrator', 'system_administrator', 'super admin', 'super_admin']);
         $isSupervisor = $roleName === 'supervisor';
 
-        return $query->where(function ($q) use ($officeName, $divisionName, $fullName, $user, $isAdmin, $isSupervisor) {
+        return $query->where(function ($q) use ($officeNames, $divisionName, $fullName, $user, $isAdmin, $isSupervisor) {
             // Clause A: Non-confidential documents in their office
-            $q->where(function ($q1) use ($officeName, $divisionName, $isAdmin, $isSupervisor, $fullName, $user) {
+            $q->where(function ($q1) use ($officeNames, $divisionName, $isAdmin, $isSupervisor, $fullName, $user) {
                 $q1->where('is_confidential', false)
-                   ->where('office_assignment', $officeName)
+                   ->whereIn('office_assignment', $officeNames)
                    ->where(function ($qSub) use ($isAdmin, $isSupervisor, $fullName, $user, $divisionName) {
                        if ($isAdmin || $isSupervisor) {
                            // Supervisors and admins see whatever is incoming to their office regardless of division/assigned user
@@ -166,9 +176,9 @@ class Document extends Model
                    });
             })
             // Clause B: Confidential documents
-            ->orWhere(function ($q2) use ($officeName, $fullName, $user, $isAdmin) {
+            ->orWhere(function ($q2) use ($officeNames, $fullName, $user, $isAdmin) {
                 $q2->where('is_confidential', true)
-                   ->where(function ($qSub) use ($officeName, $fullName, $user, $isAdmin) {
+                   ->where(function ($qSub) use ($officeNames, $fullName, $user, $isAdmin) {
                        // The assigned user can see it
                        $qSub->where('assigned_user', $fullName)
                             ->orWhere('assigned_user', $user->id)
@@ -176,7 +186,7 @@ class Document extends Model
                        
                        // The admin in that office can see it (if it's in their office)
                        if ($isAdmin) {
-                           $qSub->orWhere('office_assignment', $officeName);
+                           $qSub->orWhereIn('office_assignment', $officeNames);
                        }
                    });
             })
@@ -192,25 +202,35 @@ class Document extends Model
                      ->whereHas('creator', function ($qC) use ($user) {
                          $qC->where('office_id', $user->office_id);
                      });
+            })
+            // Clause E: Self-assigned documents (user created & self-assigned to themselves)
+            ->orWhere(function ($qSelf) use ($user) {
+                $qSelf->where('self_assign', true)
+                      ->where('created_by', $user->id);
             });
-        })->where(function ($qInternalCheck) {
-            // Must not be internal unless it is send_to_all
+        })->where(function ($qInternalCheck) use ($user) {
+            // Must not be internal unless it is send_to_all, or it's a self-assigned doc
             $qInternalCheck->where('is_internal', false)
                            ->orWhere(function ($qIntSub) {
                                $qIntSub->where('is_internal', true)
                                        ->where('send_to_all', true);
+                           })
+                           ->orWhere(function ($qSelfInternal) use ($user) {
+                               // Self-assigned docs always pass regardless of is_internal
+                               $qSelfInternal->where('self_assign', true)
+                                             ->where('created_by', $user->id);
                            });
         })
           ->where('status', '!=', 'completed')
-          ->where('status', '!=', 'archived')
-          ->where('status', '!=', 'released');
+          ->where('status', '!=', 'archived');
     }
 
     public function scopeForOutgoing($query, User $user)
     {
         $officeName = $user->office?->name;
+        $officeNames = self::getSimilarOfficeNames($officeName);
 
-        return $query->where(function ($q) use ($user, $officeName) {
+        return $query->where(function ($q) use ($user, $officeNames) {
             $q->where(function ($q2) use ($user) {
                 $q2->whereIn('status', ['released', 'outgoing', 'returned']);
                 if ($user->office_id) {
@@ -222,13 +242,39 @@ class Document extends Model
                 }
             });
 
-            if ($officeName) {
-                $q->orWhereHas('histories', function ($q3) use ($officeName) {
-                    $q3->whereIn('action', ['assigned', 'transfer', 'returned', 'released'])
-                       ->where('from_office', $officeName)
-                       ->whereColumn('from_office', '!=', 'to_office');
+            if (!empty($officeNames)) {
+                $q->orWhereHas('histories', function ($q3) use ($officeNames) {
+                    $q3->whereIn('action', ['ASSIGNED', 'TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
+                       ->whereIn('from_office', $officeNames);
                 });
             }
+
+            // Also include if the user specifically performed the outgoing action
+            $q->orWhereHas('histories', function ($q4) use ($user) {
+                $q4->whereIn('action', ['TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
+                   ->where('performed_by', $user->id);
+            });
         });
+    }
+
+    private static function getSimilarOfficeNames(?string $officeName): array
+    {
+        if (!$officeName) {
+            return [];
+        }
+        
+        $cleanName = str_ireplace(['office of the city', 'office of the', 'office', 'officer'], '', $officeName);
+        $cleanName = trim(preg_replace('/\s+/', ' ', $cleanName));
+        
+        if (strlen($cleanName) < 3) {
+            return [$officeName];
+        }
+
+        $names = Office::query()
+            ->where('name', 'LIKE', "%{$cleanName}%")
+            ->pluck('name')
+            ->toArray();
+            
+        return array_unique(array_merge([$officeName], $names));
     }
 }

@@ -56,6 +56,10 @@ class UpdateUserAccessRequest extends FormRequest
             ],
             'is_active' => ['sometimes', 'required', 'boolean'],
 
+            'permission_overrides' => ['sometimes', 'array'],
+            'permission_overrides.*.permission_name' => ['required_with:permission_overrides', 'string', 'max:255'],
+            'permission_overrides.*.effect' => ['required_with:permission_overrides', 'string', Rule::in(['grant', 'deny'])],
+
             'first_name' => ['prohibited'],
             'last_name' => ['prohibited'],
             'middle_name' => ['prohibited'],

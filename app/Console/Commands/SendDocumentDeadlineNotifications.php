@@ -5,11 +5,16 @@ namespace App\Console\Commands;
 use App\Models\Document;
 use App\Models\User;
 use App\Services\DocumentNotificationService;
+use App\Support\DocumentStatuses;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 class SendDocumentDeadlineNotifications extends Command
 {
+    /** @var array<string, User>|null */
+    private ?array $usersByNormalizedName = null;
+
     /**
      * The name and signature of the console command.
      *
@@ -31,40 +36,57 @@ class SendDocumentDeadlineNotifications extends Command
     {
         $this->info('Starting document deadline notification checks...');
 
-        $thresholdConfig = config('documents.due_reminder_days', env('DOCUMENT_DUE_REMINDER_DAYS', '3,1'));
+        $thresholdConfig = config('documents.due_reminder_days', [3, 1]);
         $reminderDays = is_array($thresholdConfig)
             ? array_map('intval', $thresholdConfig)
             : array_map('intval', explode(',', (string) $thresholdConfig));
 
-        $documents = Document::query()
+        $documentQuery = Document::query()
             ->whereNotNull('due_date')
-            ->whereNotIn('status', DocumentNotificationService::NON_ACTIONABLE_STATUSES)
-            ->with(['acknowledgements' => fn ($q) => $q->latest()])
-            ->get();
+            ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
+            ->with([
+                'acknowledgements' => fn ($query) => $query->latest(),
+                'acknowledgements.user',
+                'creator',
+            ]);
 
         $processedCount = 0;
+        $documentCount = 0;
         $today = now()->startOfDay();
 
-        foreach ($documents as $document) {
-            $responsibleUser = $this->resolveResponsibleUser($document);
+        $documentQuery->chunkById(200, function ($documents) use (
+            $notificationService,
+            $reminderDays,
+            $today,
+            &$processedCount,
+            &$documentCount,
+        ) {
+            $documentCount += $documents->count();
 
-            if (! $responsibleUser) {
-                continue;
+            foreach ($documents as $document) {
+                $responsibleUser = $this->resolveResponsibleUser($document);
+
+                if (! $responsibleUser) {
+                    continue;
+                }
+
+                $dueDate = $document->due_date->startOfDay();
+                $daysUntilDue = (int) $today->diffInDays($dueDate, false);
+
+                if ($daysUntilDue > 0 && in_array($daysUntilDue, $reminderDays, true)) {
+                    $notificationService->notifyDueSoon($document, $responsibleUser, $daysUntilDue);
+                    $processedCount++;
+                } elseif ($daysUntilDue === 0) {
+                    $notificationService->notifyDueToday($document, $responsibleUser);
+                    $processedCount++;
+                } elseif ($daysUntilDue < 0) {
+                    $notificationService->notifyOverdue($document, $responsibleUser);
+                    $processedCount++;
+                }
             }
+        });
 
-            $dueDate = $document->due_date->startOfDay();
-            $daysUntilDue = (int) $today->diffInDays($dueDate, false);
-
-            if ($daysUntilDue > 0 && in_array($daysUntilDue, $reminderDays, true)) {
-                $notificationService->notifyDueSoon($document, $responsibleUser, $daysUntilDue);
-                $processedCount++;
-            } elseif ($daysUntilDue < 0) {
-                $notificationService->notifyOverdue($document, $responsibleUser);
-                $processedCount++;
-            }
-        }
-
-        $this->info("Completed document deadline check. Processed {$processedCount} notifications for {$documents->count()} documents.");
+        $this->info("Completed document deadline check. Processed {$processedCount} notifications for {$documentCount} documents.");
 
         return Command::SUCCESS;
     }
@@ -88,13 +110,12 @@ class SendDocumentDeadlineNotifications extends Command
                 }
             }
 
-            $normalized = strtolower(trim($assigned));
-            $candidates = User::all();
-            foreach ($candidates as $candidate) {
-                if (strtolower(trim($candidate->full_name)) === $normalized) {
-                    return $candidate;
-                }
-            }
+            $this->usersByNormalizedName ??= User::query()
+                ->get()
+                ->mapWithKeys(fn (User $user): array => [Str::lower(trim($user->full_name)) => $user])
+                ->all();
+
+            return $this->usersByNormalizedName[Str::lower(trim($assigned))] ?? $document->creator;
         }
 
         return $document->creator;

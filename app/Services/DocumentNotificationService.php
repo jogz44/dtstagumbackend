@@ -5,24 +5,27 @@ namespace App\Services;
 use App\Models\Document;
 use App\Models\Notification;
 use App\Models\User;
+use App\Support\DocumentStatuses;
+use Illuminate\Database\QueryException;
 
 class DocumentNotificationService
 {
     /**
      * Canonical document statuses where actions/deadlines are no longer required.
      */
-    public const NON_ACTIONABLE_STATUSES = [
-        'completed',
-        'archived',
-        'released',
-    ];
+    public const NON_ACTIONABLE_STATUSES = DocumentStatuses::TERMINAL;
 
     /**
      * Notify user when a document is assigned or routed to them.
      */
-    public function notifyReceived(Document $document, User $receiver, ?User $sender = null): ?Notification
-    {
-        $key = "doc:{$document->id}:received:user:{$receiver->id}";
+    public function notifyReceived(
+        Document $document,
+        User $receiver,
+        ?User $sender = null,
+        ?string $assignmentEventId = null,
+    ): ?Notification {
+        $eventKey = $assignmentEventId ?: 'legacy';
+        $key = "doc:{$document->id}:assignment:{$eventKey}:user:{$receiver->id}";
 
         $senderName = $sender?->full_name ?: $document->origin_sender ?: 'Sender';
         $trackingNo = $document->tracking_number;
@@ -38,6 +41,7 @@ class DocumentNotificationService
                 'tracking_number' => $trackingNo,
                 'sender_id' => $sender?->id,
                 'sender_name' => $senderName,
+                'assignment_event_id' => $assignmentEventId,
             ],
         ]);
     }
@@ -82,8 +86,14 @@ class DocumentNotificationService
      */
     public function notifyPending(Document $document, User $responsibleUser): ?Notification
     {
-        if (in_array(strtolower((string) $document->status), self::NON_ACTIONABLE_STATUSES, true)) {
-            return null;
+        $status = strtolower((string) $document->status);
+        if (in_array($status, self::NON_ACTIONABLE_STATUSES, true)) {
+            $isAssigned = $document->assigned_user === $responsibleUser->full_name ||
+                          $document->assigned_user === $responsibleUser->id ||
+                          $document->assigned_user === $responsibleUser->username;
+            if (! ($status === 'released' && $isAssigned)) {
+                return null;
+            }
         }
 
         $key = "doc:{$document->id}:pending:user:{$responsibleUser->id}";
@@ -163,21 +173,58 @@ class DocumentNotificationService
         ]);
     }
 
+    public function notifyDueToday(Document $document, User $responsibleUser): ?Notification
+    {
+        if (in_array(strtolower((string) $document->status), self::NON_ACTIONABLE_STATUSES, true)) {
+            return null;
+        }
+
+        $trackingNo = $document->tracking_number;
+
+        return $this->createIfNotExists([
+            'user_id' => $responsibleUser->id,
+            'document_id' => $document->id,
+            'type' => 'document.due_today',
+            'title' => 'Document due today',
+            'message' => "{$trackingNo} is due today and requires your attention.",
+            'notification_key' => "doc:{$document->id}:due_today:user:{$responsibleUser->id}",
+            'metadata' => [
+                'tracking_number' => $trackingNo,
+                'due_date' => $document->due_date?->toDateString(),
+            ],
+        ]);
+    }
+
+    public function markAssignmentNotificationsRead(Document $document, User $user): int
+    {
+        return Notification::query()
+            ->forUser($user->id)
+            ->where('document_id', $document->id)
+            ->whereIn('type', ['document.received', 'document.pending'])
+            ->unread()
+            ->update(['read_at' => now()]);
+    }
+
     /**
      * Helper to safely create notification ensuring uniqueness.
      */
     protected function createIfNotExists(array $attributes): ?Notification
     {
-        $existing = Notification::where('notification_key', $attributes['notification_key'])->first();
-        if ($existing) {
-            return $existing;
-        }
-
         try {
-            return Notification::create($attributes);
-        } catch (\Throwable $e) {
-            // In case of race condition hit unique constraint
-            return Notification::where('notification_key', $attributes['notification_key'])->first();
+            return Notification::query()->firstOrCreate(
+                ['notification_key' => $attributes['notification_key']],
+                $attributes,
+            );
+        } catch (QueryException $exception) {
+            $notification = Notification::query()
+                ->where('notification_key', $attributes['notification_key'])
+                ->first();
+
+            if ($notification) {
+                return $notification;
+            }
+
+            throw $exception;
         }
     }
 }

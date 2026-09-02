@@ -4,8 +4,8 @@ namespace App\Services;
 
 use App\Models\Document;
 use App\Models\DocumentAcknowledgement;
-use App\Models\DocumentHistory;
 use App\Models\User;
+use App\Support\DocumentStatuses;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +27,8 @@ class DashboardAnalyticsService
         $endDate = $rangeInfo['end_carbon'];
 
         // Base authorized query for the viewer
-        $baseAuthorizedQuery = $this->trackingService->buildAuthorizedDocumentQuery($viewer);
+        $baseAuthorizedQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+        $baseAuthorizedQuery = $this->applyDashboardScope($baseAuthorizedQuery, $viewer);
 
         // Date-filtered query for range-specific stats
         $rangeQuery = (clone $baseAuthorizedQuery)->whereBetween('documents.created_at', [$startDate, $endDate]);
@@ -53,6 +54,9 @@ class DashboardAnalyticsService
         // 7. Performance Summary
         $performance = $this->calculatePerformanceSummary($baseAuthorizedQuery, $rangeQuery, $startDate, $endDate);
 
+        // 8. Yearly Overview (static cards that don't change with range selector)
+        $yearlyOverview = $this->calculateYearlyOverview($baseAuthorizedQuery);
+
         return [
             'range_info' => [
                 'selected_range' => $rangeInfo['selected_range'],
@@ -67,6 +71,7 @@ class DashboardAnalyticsService
             'top_document_types' => $topDocumentTypes,
             'overdue_trend' => $overdueTrend,
             'performance' => $performance,
+            'yearly_overview' => $yearlyOverview,
         ];
     }
 
@@ -99,7 +104,7 @@ class DashboardAnalyticsService
                 'date_to' => $end->format('Y-m-d'),
                 'start_carbon' => $start,
                 'end_carbon' => $end,
-                'label' => $start->format('M d, Y') . ' - ' . $end->format('M d, Y'),
+                'label' => $start->format('M d, Y').' - '.$end->format('M d, Y'),
             ];
         }
 
@@ -112,12 +117,12 @@ class DashboardAnalyticsService
             case 'last_7_days':
                 $start = $today->copy()->subDays(6)->startOfDay();
                 $end = $today->copy()->endOfDay();
-                $label = 'Last 7 Days (' . $start->format('M d') . ' - ' . $end->format('M d, Y') . ')';
+                $label = 'Last 7 Days ('.$start->format('M d').' - '.$end->format('M d, Y').')';
                 break;
             case 'this_week':
                 $start = Carbon::now()->startOfWeek();
                 $end = Carbon::now()->endOfWeek();
-                $label = 'This Week (' . $start->format('M d') . ' - ' . $end->format('M d, Y') . ')';
+                $label = 'This Week ('.$start->format('M d').' - '.$end->format('M d, Y').')';
                 break;
             case 'last_30_days':
                 $start = $today->copy()->subDays(29)->startOfDay();
@@ -127,14 +132,14 @@ class DashboardAnalyticsService
             case 'this_year':
                 $start = Carbon::now()->startOfYear();
                 $end = Carbon::now()->endOfYear();
-                $label = 'This Year (' . $start->format('Y') . ')';
+                $label = 'This Year ('.$start->format('Y').')';
                 break;
             case 'this_month':
             default:
                 $range = 'this_month';
                 $start = Carbon::now()->startOfMonth();
                 $end = Carbon::now()->endOfMonth();
-                $label = 'This Month (' . $start->format('M Y') . ')';
+                $label = 'This Month ('.$start->format('M Y').')';
                 break;
         }
 
@@ -153,7 +158,7 @@ class DashboardAnalyticsService
         $totalDocuments = (clone $rangeQuery)->count();
 
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
-        $terminalStatuses = ['completed', 'released', 'archived', 'approved'];
+        $terminalStatuses = DocumentStatuses::TERMINAL;
 
         $pending = (clone $baseQuery)
             ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
@@ -162,7 +167,7 @@ class DashboardAnalyticsService
         $overdue = (clone $baseQuery)
             ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
             ->whereNotNull('due_date')
-            ->where('due_date', '<', Carbon::today()->format('Y-m-d'))
+            ->where('due_date', '<=', Carbon::today()->format('Y-m-d'))
             ->count();
 
         $thisMonthStart = Carbon::now()->startOfMonth();
@@ -252,7 +257,8 @@ class DashboardAnalyticsService
             $dayEnd = $current->copy()->endOfDay();
             $dateStr = $current->format('Y-m-d');
 
-            $dayBaseQuery = $this->trackingService->buildAuthorizedDocumentQuery($viewer);
+            $dayBaseQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+            $dayBaseQuery = $this->applyDashboardScope($dayBaseQuery, $viewer);
 
             $incomingCount = (clone $dayBaseQuery)
                 ->whereBetween('created_at', [$dayStart, $dayEnd])
@@ -320,9 +326,9 @@ class DashboardAnalyticsService
             $dateStr = $current->format('Y-m-d');
 
             $count = (clone $baseQuery)
-                ->whereNotIn(DB::raw('LOWER(status)'), ['completed', 'released', 'archived', 'approved'])
+                ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
                 ->whereNotNull('due_date')
-                ->where('due_date', '<', $dateStr)
+                ->where('due_date', '<=', $dateStr)
                 ->whereDate('created_at', '<=', $dateStr)
                 ->count();
 
@@ -371,9 +377,9 @@ class DashboardAnalyticsService
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
         $activeDocsCount = (clone $baseQuery)->whereIn(DB::raw('LOWER(status)'), $activeStatuses)->count();
         $overdueCount = (clone $baseQuery)
-            ->whereNotIn(DB::raw('LOWER(status)'), ['completed', 'released', 'archived', 'approved'])
+            ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
             ->whereNotNull('due_date')
-            ->where('due_date', '<', Carbon::today()->format('Y-m-d'))
+            ->where('due_date', '<=', Carbon::today()->format('Y-m-d'))
             ->count();
 
         $overdueRate = $activeDocsCount > 0 ? round(($overdueCount / $activeDocsCount) * 100, 1) : 0.0;
@@ -384,5 +390,93 @@ class DashboardAnalyticsService
             'documents_per_day' => $docsPerDay,
             'overdue_rate' => $overdueRate,
         ];
+    }
+
+    private function calculateYearlyOverview(Builder $baseQuery): array
+    {
+        $yearStart = Carbon::now()->startOfYear();
+        $yearEnd = Carbon::now()->endOfYear();
+        $today = Carbon::today();
+
+        $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
+        $terminalStatuses = DocumentStatuses::TERMINAL;
+
+        // Received total (yearly) - documents with status 'received' created this year
+        $receivedTotal = (clone $baseQuery)
+            ->where(DB::raw('LOWER(status)'), 'received')
+            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Pending total (yearly) - active status documents created this year
+        $pendingTotal = (clone $baseQuery)
+            ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
+            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Overdue total (yearly) - overdue documents this year
+        $overdueTotal = (clone $baseQuery)
+            ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
+            ->whereNotNull('due_date')
+            ->where('due_date', '<=', $today->format('Y-m-d'))
+            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Completed total (yearly) - completed/released/approved this year
+        $completedTotal = (clone $baseQuery)
+            ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
+            ->whereBetween('documents.updated_at', [$yearStart, $yearEnd])
+            ->count();
+
+        // Received today - documents with status 'received' created today
+        $receivedToday = (clone $baseQuery)
+            ->where(DB::raw('LOWER(status)'), 'received')
+            ->whereDate('documents.created_at', $today)
+            ->count();
+
+        return [
+            'received_total' => $receivedTotal,
+            'pending_total' => $pendingTotal,
+            'overdue_total' => $overdueTotal,
+            'completed_total' => $completedTotal,
+            'received_today' => $receivedToday,
+        ];
+    }
+
+    private function applyDashboardScope($query, User $user)
+    {
+        $role = strtolower($user->roles->first()?->name ?? $user->role_name ?? '');
+        $officeName = $user->office?->name;
+        $divisionName = $user->division?->name;
+
+        if (in_array($role, ['admin', 'super_admin', 'administrator'], true)) {
+            // Admin: only documents within their office
+            return $query->where(function ($q) use ($officeName, $user) {
+                $q->where('office_assignment', $officeName)
+                  ->orWhereHas('creator', function ($qCreator) use ($user) {
+                      $qCreator->where('office_id', $user->office_id);
+                  });
+            });
+        } elseif ($role === 'supervisor') {
+            // Supervisor: division-level if division exists, otherwise office-level (like admin)
+            if ($divisionName) {
+                return $query->where('division_assignment', $divisionName);
+            } else {
+                return $query->where(function ($q) use ($officeName, $user) {
+                    $q->where('office_assignment', $officeName)
+                      ->orWhereHas('creator', function ($qCreator) use ($user) {
+                          $qCreator->where('office_id', $user->office_id);
+                      });
+                });
+            }
+        } else {
+            // Receiver / Standard user: only documents assigned to them or created by them
+            return $query->where(function ($q) use ($user) {
+                $q->where('created_by', $user->id)
+                  ->orWhere('assigned_user', $user->full_name)
+                  ->orWhere('assigned_user', $user->id)
+                  ->orWhere('assigned_user', $user->username)
+                  ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $user->id)->orWhere('assigned_name', $user->full_name));
+            });
+        }
     }
 }
