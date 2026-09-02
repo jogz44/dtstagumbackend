@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AttentionSummaryController;
+use App\Http\Controllers\BarangayController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\DocumentTrackingController;
@@ -89,7 +90,7 @@ Route::middleware('auth:sanctum')->group(function () {
             return response()->json(['message' => 'Current password is incorrect.'], 422);
         }
 
-        if ($user->pmisEmployee && app(UserInitialPasswordService::class)->matchesEmployeeBirthday($user->pmisEmployee, $request->new_password)) {
+        if (app(UserInitialPasswordService::class)->matchesUserBirthdate($user, $request->new_password) || ($user->pmisEmployee && app(UserInitialPasswordService::class)->matchesEmployeeBirthday($user->pmisEmployee, $request->new_password))) {
             return response()->json([
                 'message' => 'Choose a password different from your temporary birthday password.',
                 'errors' => [
@@ -155,7 +156,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/roles', [RoleController::class, 'index']);
         Route::get('/roles/options', [RoleController::class, 'options']);
         Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions']);
+        Route::get('/barangays', [BarangayController::class, 'index']);
         Route::get('/users/statistics', [UserController::class, 'statistics']);
+        Route::post('/users/username-preview', [UserController::class, 'previewUsername']);
         Route::get('/users/{user}/history', [UserAuditController::class, 'history'])->withTrashed();
         Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
         Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
