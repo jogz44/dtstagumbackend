@@ -48,14 +48,14 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasRoles, HasUuids, Notifiable, SoftDeletes;
 
+    protected $primaryKey = 'id';
     public $incrementing = false;
+    protected $keyType = 'string';
 
     protected $appends = [
         'full_name',
         'account_status',
     ];
-
-    protected $keyType = 'string';
 
     protected $fillable = [
         'username',

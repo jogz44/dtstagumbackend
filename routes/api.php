@@ -33,6 +33,9 @@ Route::post('/login', function (Request $request) {
     $user = User::whereRaw('LOWER(username) = ?', [strtolower($username)])->first();
 
     if ($user && Hash::check($request->password, $user->password)) {
+        // Revoke all previous tokens so only one active token exists
+        $user->tokens()->delete();
+
         if (! $user->is_active) {
             return response()->json([
                 'message' => 'This account is inactive. Please contact an administrator.',
