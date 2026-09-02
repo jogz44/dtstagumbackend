@@ -145,7 +145,7 @@ class DocumentHistory extends Model
      * @param array $attributes
      * @return self
      */
-    public static function record(Document $document, string $eventType, User $performedBy, array $attributes = []): self
+    public static function record(Document $document, string $eventType, ?User $performedBy = null, array $attributes = []): self
     {
         $eventType = strtoupper($eventType);
 
@@ -157,7 +157,9 @@ class DocumentHistory extends Model
             ? (string) $attributes['tracking_number']
             : (string) $document->getAttribute('tracking_number');
 
-        $performedById = (string) $performedBy->getKey();
+        $performedById = $performedBy
+            ? (string) $performedBy->getKey()
+            : ($attributes['performed_by'] ?? $document->created_by ?? null);
 
         return $document->histories()->create([
             ...$attributes,
