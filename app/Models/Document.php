@@ -191,74 +191,61 @@ class Document extends Model
         $isAdmin = in_array($roleName, ['admin', 'administrator', 'system administrator', 'system_administrator', 'super admin', 'super_admin']);
         $isSupervisor = $roleName === 'supervisor';
 
-        return $query->where(function ($q) use ($officeNames, $divisionName, $fullName, $user, $isAdmin, $isSupervisor) {
-            // Clause A: Non-confidential documents in their office
-            $q->where(function ($q1) use ($officeNames, $divisionName, $isAdmin, $isSupervisor, $fullName, $user) {
-                $q1->where('is_confidential', false)
-                   ->whereIn('office_assignment', $officeNames)
-                   ->where(function ($qSub) use ($isAdmin, $isSupervisor, $fullName, $user, $divisionName) {
-                       if ($isAdmin || $isSupervisor) {
-                           // Supervisors and admins see whatever is incoming to their office regardless of division/assigned user
-                       } else {
-                           // Regular users see if they are assigned, or if the division matches
-                           $qSub->where('assigned_user', $fullName)
-                                ->orWhere('assigned_user', $user->id)
-                                ->orWhere(function ($qDiv) use ($divisionName) {
-                                    if ($divisionName) {
-                                        $qDiv->where('division_assignment', $divisionName);
-                                    }
-                                });
-                       }
-                   });
+        if (empty($officeNames)) {
+            return $query->whereRaw('1 = 0');
+        }
+
+        return $query->whereIn('office_assignment', $officeNames)
+            ->where(function ($q) use ($divisionName, $fullName, $user, $isAdmin, $isSupervisor) {
+                // Non-confidential documents in their office
+                $q->where(function ($q1) use ($divisionName, $isAdmin, $isSupervisor, $fullName, $user) {
+                    $q1->where('is_confidential', false)
+                       ->where(function ($qSub) use ($isAdmin, $isSupervisor, $fullName, $user, $divisionName) {
+                           if ($isAdmin || $isSupervisor) {
+                               // Supervisors and admins see whatever is incoming to their office
+                           } else {
+                               // Regular users see if they are assigned, or if the division matches, or unassigned in their office
+                               $qSub->where('assigned_user', $fullName)
+                                    ->orWhere('assigned_user', $user->id)
+                                    ->orWhere('assigned_user', $user->username)
+                                    ->orWhere(function ($qDiv) use ($divisionName) {
+                                        if ($divisionName) {
+                                            $qDiv->where('division_assignment', $divisionName);
+                                        }
+                                    })
+                                    ->orWhereNull('assigned_user')
+                                    ->orWhere('assigned_user', '');
+                           }
+                       });
+                })
+                // Confidential documents in their office
+                ->orWhere(function ($q2) use ($fullName, $user, $isAdmin) {
+                    $q2->where('is_confidential', true)
+                       ->where(function ($qSub) use ($fullName, $user, $isAdmin) {
+                           if ($isAdmin) {
+                               // Admin in that office can see it
+                           } else {
+                               $qSub->where('assigned_user', $fullName)
+                                    ->orWhere('assigned_user', $user->id)
+                                    ->orWhere('assigned_user', $user->username);
+                           }
+                       });
+                });
             })
-            // Clause B: Confidential documents
-            ->orWhere(function ($q2) use ($officeNames, $fullName, $user, $isAdmin) {
-                $q2->where('is_confidential', true)
-                   ->where(function ($qSub) use ($officeNames, $fullName, $user, $isAdmin) {
-                       // The assigned user can see it
-                       $qSub->where('assigned_user', $fullName)
-                            ->orWhere('assigned_user', $user->id)
-                            ->orWhere('assigned_user', $user->username);
-                       
-                       // The admin in that office can see it (if it's in their office)
-                       if ($isAdmin) {
-                           $qSub->orWhereIn('office_assignment', $officeNames);
-                       }
-                   });
+            ->where(function ($qInternalCheck) use ($user) {
+                // Must not be internal unless it is send_to_all, or it's a self-assigned doc
+                $qInternalCheck->where('is_internal', false)
+                               ->orWhere(function ($qIntSub) {
+                                   $qIntSub->where('is_internal', true)
+                                           ->where('send_to_all', true);
+                               })
+                               ->orWhere(function ($qSelfInternal) use ($user) {
+                                   $qSelfInternal->where('self_assign', true)
+                                                 ->where('created_by', $user->id);
+                               });
             })
-            // Clause C: Specifically assigned to the user (even if not in their office, or external, etc.)
-            ->orWhere(function ($q3) use ($fullName, $user) {
-                $q3->where('assigned_user', $fullName)
-                   ->orWhere('assigned_user', $user->id);
-            })
-            // Clause D: Internal send_to_all documents in creator's office
-            ->orWhere(function ($qInt) use ($user) {
-                $qInt->where('is_internal', true)
-                     ->where('send_to_all', true)
-                     ->whereHas('creator', function ($qC) use ($user) {
-                         $qC->where('office_id', $user->office_id);
-                     });
-            })
-            // Clause E: Self-assigned documents (user created & self-assigned to themselves)
-            ->orWhere(function ($qSelf) use ($user) {
-                $qSelf->where('self_assign', true)
-                      ->where('created_by', $user->id);
-            });
-        })->where(function ($qInternalCheck) use ($user) {
-            // Must not be internal unless it is send_to_all, or it's a self-assigned doc
-            $qInternalCheck->where('is_internal', false)
-                           ->orWhere(function ($qIntSub) {
-                               $qIntSub->where('is_internal', true)
-                                       ->where('send_to_all', true);
-                           })
-                           ->orWhere(function ($qSelfInternal) use ($user) {
-                               // Self-assigned docs always pass regardless of is_internal
-                               $qSelfInternal->where('self_assign', true)
-                                             ->where('created_by', $user->id);
-                           });
-        })
-          ->where('status', '!=', 'completed')
-          ->where('status', '!=', 'archived');
+            ->where('status', '!=', 'completed')
+            ->where('status', '!=', 'archived');
     }
 
     public function scopeForOutgoing($query, User $user)
