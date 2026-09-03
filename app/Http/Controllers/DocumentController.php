@@ -920,7 +920,7 @@ class DocumentController extends Controller
             ->pluck('document_type')
             ->toArray();
 
-        $defaults = ['Memo', 'Letter', 'Report'];
+        $defaults = ['Venue', 'Memo', 'Letter', 'Report'];
         $combined = array_values(array_unique(array_merge($defaults, $types)));
 
         return response()->json($combined);
