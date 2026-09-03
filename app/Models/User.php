@@ -62,9 +62,11 @@ class User extends Authenticatable
         'password',
         'must_change_password',
         'first_name',
+        'middle_name',
         'last_name',
         'office_id',
         'division_id',
+        'barangay_id',
         'employee_id',
         'pmis_employee_id',
         'birthdate',
@@ -73,6 +75,7 @@ class User extends Authenticatable
         'avatar_url',
         'is_active',
         'email',
+        'creation_source',
         'last_login_at',
     ];
 
@@ -91,6 +94,11 @@ class User extends Authenticatable
         'must_change_password' => 'boolean',
         'last_login_at' => 'datetime',
     ];
+
+    public function barangay(): BelongsTo
+    {
+        return $this->belongsTo(Barangay::class);
+    }
 
     public function pmisEmployee(): BelongsTo
     {
