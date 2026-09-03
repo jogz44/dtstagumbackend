@@ -4,10 +4,32 @@ namespace App\Services;
 
 use App\Models\PmisEmployee;
 use App\Models\User;
+use Illuminate\Support\Carbon;
 use InvalidArgumentException;
 
 class UserInitialPasswordService
 {
+    /**
+     * Generate zero-padded MMDDYYYY temporary password from birthdate (string 'Y-m-d' or Carbon).
+     */
+    public function fromBirthdate(string|Carbon $birthdate): string
+    {
+        if (empty($birthdate)) {
+            throw new InvalidArgumentException('Birthdate is required to generate initial temporary password.');
+        }
+
+        if ($birthdate instanceof Carbon) {
+            return $birthdate->format('mdY');
+        }
+
+        $dateStr = trim((string) $birthdate);
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateStr)) {
+            return Carbon::createFromFormat('Y-m-d', $dateStr)->format('mdY');
+        }
+
+        return Carbon::parse($dateStr)->format('mdY');
+    }
+
     /**
      * Generate zero-padded MMDDYYYY temporary password from synchronized PMIS birth_date.
      */
@@ -19,7 +41,7 @@ class UserInitialPasswordService
             );
         }
 
-        return $employee->birth_date->format('mdY');
+        return $this->fromBirthdate($employee->birth_date);
     }
 
     /**
@@ -31,7 +53,21 @@ class UserInitialPasswordService
             return false;
         }
 
-        $birthdayPassword = $employee->birth_date->format('mdY');
+        $birthdayPassword = $this->fromBirthdate($employee->birth_date);
+
+        return trim($proposedPassword) === $birthdayPassword;
+    }
+
+    /**
+     * Check if a proposed password matches zero-padded MMDDYYYY format of a user's birthdate.
+     */
+    public function matchesUserBirthdate(?User $user, string $proposedPassword): bool
+    {
+        if ($user === null || $user->birthdate === null) {
+            return false;
+        }
+
+        $birthdayPassword = $this->fromBirthdate($user->birthdate);
 
         return trim($proposedPassword) === $birthdayPassword;
     }

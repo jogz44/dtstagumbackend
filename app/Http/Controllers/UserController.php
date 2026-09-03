@@ -13,6 +13,7 @@ use App\Models\PmisEmployee;
 use App\Models\User;
 use App\Services\AuditService;
 use App\Services\UserAccessService;
+use App\Services\UserAccountService;
 use App\Services\UserDeactivationService;
 use App\Services\UserInitialPasswordService;
 use App\Support\RoleNames;
@@ -24,6 +25,27 @@ use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
 {
+    public function previewUsername(Request $request, UserAccountService $userAccountService): JsonResponse
+    {
+        $this->authorizeUserManagement($request);
+
+        $request->validate([
+            'first_name' => 'nullable|string|max:100',
+            'last_name' => 'nullable|string|max:100',
+            'firstName' => 'nullable|string|max:100',
+            'lastName' => 'nullable|string|max:100',
+        ]);
+
+        $firstName = (string) ($request->input('first_name') ?? $request->input('firstName', ''));
+        $lastName = (string) ($request->input('last_name') ?? $request->input('lastName', ''));
+
+        $username = $userAccountService->generateUsername($firstName, $lastName);
+
+        return response()->json([
+            'username' => $username,
+        ]);
+    }
+
     public function statistics(Request $request): JsonResponse
     {
         $activeCount = User::query()->where('is_active', true)->count();
@@ -88,6 +110,7 @@ class UserController extends Controller
         $query->with([
             'office:id,name,short_name',
             'division:id,name,short_name,office_id',
+            'barangay:id,name,city',
             'roles:id,name,display_name,description',
         ]);
 
@@ -116,90 +139,18 @@ class UserController extends Controller
     public function show(Request $request, User $user): JsonResponse
     {
         $this->authorizeUserView($request->user(), $user);
-        $user->loadMissing(['office', 'division', 'roles', 'pmisEmployee', 'permissionOverrides']);
+        $user->loadMissing(['office', 'division', 'barangay', 'roles', 'pmisEmployee', 'permissionOverrides']);
 
         return (new UserAccessResource($user))->response();
     }
 
-    public function store(StoreUserRequest $request, AuditService $audit): JsonResponse
+    public function store(StoreUserRequest $request, UserAccountService $userAccountService): JsonResponse
     {
-        $user = DB::transaction(function () use ($request, $audit) {
-            $validated = $request->validated();
+        $this->authorizeUserManagement($request);
 
-            $employee = PmisEmployee::findOrFail($validated['pmis_employee_id']);
+        $user = $userAccountService->createUser($request->validated(), $request->user(), $request);
 
-            if ($employee->user()->withTrashed()->exists()) {
-                abort(response()->json([
-                    'message' => 'This PMIS employee already has a linked portal account.',
-                    'errors' => ['pmis_employee_id' => ['This PMIS employee already has a linked portal account.']],
-                ], 422));
-            }
-
-            if ($employee->birth_date === null) {
-                abort(response()->json([
-                    'message' => 'This employee does not have a verified birth date in PMIS and cannot be issued the standard temporary password.',
-                    'errors' => ['pmis_employee_id' => ['This employee does not have a verified birth date in PMIS.']],
-                ], 422));
-            }
-
-            $initialPasswordService = app(UserInitialPasswordService::class);
-            $temporaryPassword = $initialPasswordService->fromEmployee($employee);
-
-            // Auto-fill employee identity fields from PMIS record
-            $validated['first_name'] = $employee->first_name ?: '';
-            $validated['last_name'] = $employee->last_name ?: '';
-            $validated['employee_id'] = $employee->pmis_no;
-            $validated['birthdate'] = $employee->birth_date->format('Y-m-d');
-            $validated['position'] = $employee->designation;
-            $validated['employment_status'] = $employee->employment_status;
-
-            // Auto-generate unique username if not manually provided
-            if (! isset($validated['username']) || ! filled($validated['username'])) {
-                $validated['username'] = $this->generateUsername($employee);
-            }
-
-            // Conservative Office and Division resolution from PMIS strings
-            if (! isset($validated['office_id']) || ! filled($validated['office_id'])) {
-                $validated['office_id'] = $this->resolveOfficeId($employee->office);
-            }
-
-            if (! isset($validated['division_id']) || ! filled($validated['division_id'])) {
-                $validated['division_id'] = $this->resolveDivisionId($validated['office_id'], $employee->division);
-            }
-
-            $validated['password'] = Hash::make($temporaryPassword);
-            $validated['must_change_password'] = true;
-            $validated['is_active'] = $request->boolean('is_active', true);
-
-            $user = User::create($validated);
-            $this->syncAuthorizationState($user, $request);
-            $user->refresh();
-
-            $audit->accountHistory(
-                $user,
-                $request->user(),
-                'account.created',
-                'User account was created.',
-                [],
-                $request,
-            );
-
-            $audit->activity(
-                $request->user(),
-                'account.created',
-                'User Management',
-                "Created portal account for PMIS employee {$user->first_name} {$user->last_name} (PMIS No. {$employee->pmis_no}).",
-                $request,
-                [
-                    'resource_type' => 'User',
-                    'resource_id' => $user->id,
-                ],
-            );
-
-            return $user;
-        });
-
-        $resource = (new UserResource($user->load(['office', 'division', 'roles', 'pmisEmployee'])))->resolve();
+        $resource = (new UserResource($user->load(['office', 'division', 'barangay', 'roles', 'pmisEmployee'])))->resolve();
 
         return response()->json($resource, 201);
     }
@@ -456,6 +407,29 @@ class UserController extends Controller
             ->first();
 
         return $division?->id;
+    }
+
+    private function authorizeUserManagement(Request $request): void
+    {
+        $authUser = $request->user();
+
+        if (! $authUser) {
+            abort(401, 'Unauthenticated.');
+        }
+
+        if ($authUser->username === 'admin' || $authUser->hasAnyRole(RoleNames::adminRoles())) {
+            return;
+        }
+
+        try {
+            if ($authUser->hasPermissionTo('users.manage') || $authUser->hasPermissionTo('users.create')) {
+                return;
+            }
+        } catch (\Throwable) {
+            // Missing optional permission
+        }
+
+        abort(403, 'You are not authorized to manage user accounts.');
     }
 
     private function authorizeUserView(User $actor, User $targetUser): void

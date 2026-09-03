@@ -93,7 +93,7 @@ class PmisUserCreationApiTest extends TestCase
         ]);
 
         $response->assertCreated()
-            ->assertJsonPath('username', 'jcalisagan')
+            ->assertJsonPath('username', 'j.calisagan')
             ->assertJsonPath('first_name', 'Jonas')
             ->assertJsonPath('last_name', 'Calisagan')
             ->assertJsonPath('pmis_employee_id', $employee->id)
@@ -101,7 +101,7 @@ class PmisUserCreationApiTest extends TestCase
             ->assertJsonPath('division.id', $this->recordsDivision->id);
 
         $user = User::where('pmis_employee_id', $employee->id)->firstOrFail();
-        $this->assertEquals('jcalisagan', $user->username);
+        $this->assertEquals('j.calisagan', $user->username);
         $this->assertEquals($this->hrOffice->id, $user->office_id);
         $this->assertEquals($this->recordsDivision->id, $user->division_id);
         $this->assertTrue($user->must_change_password);
@@ -111,9 +111,9 @@ class PmisUserCreationApiTest extends TestCase
 
     public function test_username_collision_increments_suffix(): void
     {
-        // Existing user with jcalisagan username
+        // Existing user with j.calisagan username
         User::create([
-            'username' => 'jcalisagan',
+            'username' => 'j.calisagan',
             'password' => bcrypt('password123'),
             'first_name' => 'Existing',
             'last_name' => 'Jonas',
@@ -136,7 +136,7 @@ class PmisUserCreationApiTest extends TestCase
         ]);
 
         $response->assertCreated()
-            ->assertJsonPath('username', 'jcalisagan2');
+            ->assertJsonPath('username', 'j.calisagan2');
     }
 
     public function test_unmatched_office_and_division_resets_to_null_without_guessing(): void
@@ -165,18 +165,14 @@ class PmisUserCreationApiTest extends TestCase
         $this->assertNull($user->division_id);
     }
 
-    public function test_request_without_pmis_employee_id_is_rejected(): void
+    public function test_request_without_pmis_employee_id_or_manual_fields_is_rejected(): void
     {
         $response = $this->actingAs($this->adminUser)->postJson('/api/users', [
-            'first_name' => 'Manual',
-            'last_name' => 'User',
-            'username' => 'manualuser',
             'role' => 'Receiver',
         ]);
 
         $response->assertStatus(422)
-            ->assertJsonValidationErrors('pmis_employee_id')
-            ->assertJsonPath('errors.pmis_employee_id.0', 'Every portal user account must be linked to a PMIS employee record.');
+            ->assertJsonValidationErrors(['first_name', 'last_name', 'birthdate', 'barangay_id']);
     }
 
     public function test_duplicate_pmis_employee_link_is_rejected(): void
@@ -264,7 +260,7 @@ class PmisUserCreationApiTest extends TestCase
     public function test_auto_generated_username_handles_soft_deleted_and_case_insensitive_collisions(): void
     {
         $existingSoftDeleted = User::create([
-            'username' => 'maala',
+            'username' => 'm.aala',
             'password' => bcrypt('password123'),
             'first_name' => 'Moira',
             'last_name' => 'Aala',
@@ -286,6 +282,6 @@ class PmisUserCreationApiTest extends TestCase
         ]);
 
         $response->assertStatus(201)
-            ->assertJsonPath('username', 'maala2');
+            ->assertJsonPath('username', 'm.aala2');
     }
 }
