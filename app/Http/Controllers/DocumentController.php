@@ -334,7 +334,7 @@ class DocumentController extends Controller
 
             // 1. Log in canonical document transaction history.
             $historyType = ($newStatus === 'released') ? DocumentHistory::RELEASED : DocumentHistory::REGISTERED;
-            $historyRemarks = $document->remarks ?: (($newStatus === 'released') ? 'Document physically released.' : 'Document registered.');
+            $historyRemarks = $document->remarks ?: (($newStatus === 'released') ? 'Document physically released.' : 'Document received.');
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'to_user_id' => $targetUser?->id,
@@ -1254,6 +1254,12 @@ class DocumentController extends Controller
 
     public function receive(Request $request, Document $document): JsonResponse
     {
+        if (! in_array(strtolower((string) $document->status), ['transferred', 'released'])) {
+            return response()->json([
+                'message' => 'Document cannot be received via QR scan because it has not been transferred first.',
+            ], 422);
+        }
+
         $user = $request->user();
         $userOffice = $user->office?->name ?? 'HR Division';
         $userDivision = $user->division?->name;
@@ -1407,23 +1413,26 @@ class DocumentController extends Controller
             'histories' => fn ($q) => $q->with(['user.office', 'user.division', 'toUser'])->latest(),
         ]);
 
-        $timeline = $document->histories->map(function ($h) {
-            $action = strtoupper($h->action);
-            $performerName = $h->user ? $h->user->full_name : 'System';
-            $performerPosition = $h->user?->position ?? '';
-            $performer = $performerPosition ? "By {$performerName} - {$performerPosition}" : "By {$performerName}";
+        $timeline = $document->histories
+            ->reject(function ($h) {
+                $action = strtoupper($h->action);
+                return in_array($action, ['ASSIGNED', 'REASSIGNED', 'RETURNED']);
+            })
+            ->map(function ($h) {
+                $action = strtoupper($h->action);
+                $performerName = $h->user ? $h->user->full_name : 'System';
+                $performerPosition = $h->user?->position ?? '';
+                $performer = $performerPosition ? "By {$performerName} - {$performerPosition}" : "By {$performerName}";
 
-            $title = match ($action) {
-                'REGISTERED' => 'Document registered',
-                'TRANSFERRED' => "Document transferred",
-                'RECEIVED' => 'Document received',
-                'EDITED' => 'Document edited',
-                'COMPLETED' => 'Document completed',
-                'RELEASED' => 'Document released',
-                'RETURNED' => 'Document returned',
-                'ASSIGNED' => "Document assigned to " . ($h->toUser?->full_name ?? $h->metadata['assigned_name'] ?? 'Staff'),
-                default => 'Document ' . strtolower($action),
-            };
+                $title = match ($action) {
+                    'REGISTERED' => 'Document received',
+                    'TRANSFERRED' => "Document transferred",
+                    'RECEIVED' => 'Document received',
+                    'EDITED' => 'Document edited',
+                    'COMPLETED' => 'Document completed',
+                    'RELEASED' => 'Document released',
+                    default => 'Document ' . strtolower($action),
+                };
 
             $route = null;
             if ($action === 'RECEIVED') {

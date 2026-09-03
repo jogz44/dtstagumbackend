@@ -14,6 +14,8 @@ use Illuminate\Database\Eloquent\SoftDeletes;
  * @property string|null $created_by
  * @property string|null $origin_sender
  * @property string|null $sender_name
+ * @property string|null $issued_by
+ * @property string|null $contact_number
  * @property string|null $document_type
  * @property string|null $priority_level
  * @property string|null $description
@@ -42,8 +44,8 @@ class Document extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'document_type',
-        'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
+        'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'issued_by', 'contact_number',
+        'document_type', 'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
         'assigned_user', 'is_read_only', 'status', 'completed_at', 'due_date', 'notes',
     ];
