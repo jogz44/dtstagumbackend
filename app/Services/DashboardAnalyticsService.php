@@ -36,8 +36,8 @@ class DashboardAnalyticsService
         // 1. KPI Summary
         $summary = $this->calculateSummary($baseAuthorizedQuery, $rangeQuery);
 
-        // 2. Documents by Status
-        $statusDistribution = $this->calculateStatusDistribution($rangeQuery);
+        // 2. Documents by Status (for the whole year / all-time per office)
+        $statusDistribution = $this->calculateStatusDistribution($baseAuthorizedQuery);
 
         // 3. Documents by Direction
         $directionDistribution = $this->calculateDirectionDistribution($viewer, $rangeQuery);
@@ -167,9 +167,13 @@ class DashboardAnalyticsService
             ->count();
 
         $overdue = (clone $baseQuery)
-            ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
-            ->whereNotNull('due_date')
-            ->where('due_date', '<=', Carbon::today()->format('Y-m-d'))
+            ->where(function ($q) use ($terminalStatuses) {
+                $q->where(function ($sub) use ($terminalStatuses) {
+                    $sub->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
+                        ->whereNotNull('due_date')
+                        ->where('due_date', '<=', Carbon::today()->format('Y-m-d'));
+                })->orWhere(DB::raw('LOWER(status)'), 'overdue');
+            })
             ->count();
 
         $thisMonthStart = Carbon::now()->startOfMonth();
@@ -318,6 +322,7 @@ class DashboardAnalyticsService
         $trend = [];
         $current = $startDate->copy()->startOfDay();
         $end = $endDate->copy()->startOfDay();
+        $todayStr = Carbon::today('Asia/Manila')->format('Y-m-d');
 
         $daysCount = $current->diffInDays($end) + 1;
         if ($daysCount > 90) {
@@ -327,12 +332,21 @@ class DashboardAnalyticsService
         while ($current->lte($end)) {
             $dateStr = $current->format('Y-m-d');
 
-            $count = (clone $baseQuery)
-                ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
-                ->whereNotNull('due_date')
-                ->where('due_date', '<=', $dateStr)
-                ->whereDate('created_at', '<=', $dateStr)
-                ->count();
+            if ($dateStr > $todayStr) {
+                // Future dates cannot be historically overdue yet
+                $count = 0;
+            } else {
+                $count = (clone $baseQuery)
+                    ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
+                    ->where(function ($q) use ($dateStr) {
+                        $q->where(function ($sub) use ($dateStr) {
+                            $sub->whereNotNull('due_date')
+                                ->where('due_date', '<=', $dateStr);
+                        })->orWhere(DB::raw('LOWER(status)'), 'overdue');
+                    })
+                    ->whereDate('created_at', '<=', $dateStr)
+                    ->count();
+            }
 
             $trend[] = [
                 'date' => $dateStr,
@@ -380,8 +394,12 @@ class DashboardAnalyticsService
         $activeDocsCount = (clone $baseQuery)->whereIn(DB::raw('LOWER(status)'), $activeStatuses)->count();
         $overdueCount = (clone $baseQuery)
             ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL)
-            ->whereNotNull('due_date')
-            ->where('due_date', '<=', Carbon::today()->format('Y-m-d'))
+            ->where(function ($q) {
+                $q->where(function ($sub) {
+                    $sub->whereNotNull('due_date')
+                        ->where('due_date', '<=', Carbon::today('Asia/Manila')->format('Y-m-d'));
+                })->orWhere(DB::raw('LOWER(status)'), 'overdue');
+            })
             ->count();
 
         $overdueRate = $activeDocsCount > 0 ? round(($overdueCount / $activeDocsCount) * 100, 1) : 0.0;
@@ -406,11 +424,19 @@ class DashboardAnalyticsService
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
         $terminalStatuses = DocumentStatuses::TERMINAL;
 
-        // Total Received This Year - documents with received_at in selected year (half-open)
+        // Total Received This Year - fallback to created_at if received_at is null
         $receivedTotal = (clone $baseQuery)
-            ->whereNotNull('received_at')
-            ->where('received_at', '>=', $yearStart)
-            ->where('received_at', '<', $yearEnd)
+            ->where(function ($q) use ($yearStart, $yearEnd) {
+                $q->where(function ($sub) use ($yearStart, $yearEnd) {
+                    $sub->whereNotNull('received_at')
+                        ->where('received_at', '>=', $yearStart)
+                        ->where('received_at', '<', $yearEnd);
+                })->orWhere(function ($sub) use ($yearStart, $yearEnd) {
+                    $sub->whereNull('received_at')
+                        ->where('created_at', '>=', $yearStart)
+                        ->where('created_at', '<', $yearEnd);
+                });
+            })
             ->count();
 
         // Pending total - current active status documents
@@ -421,22 +447,43 @@ class DashboardAnalyticsService
         // Overdue total - currently active overdue documents
         $overdueTotal = (clone $baseQuery)
             ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
-            ->whereNotNull('due_date')
-            ->where('due_date', '<=', Carbon::today($timezone)->format('Y-m-d'))
+            ->where(function ($q) {
+                $q->where(function ($sub) {
+                    $sub->whereNotNull('due_date')
+                        ->where('due_date', '<=', Carbon::today('Asia/Manila')->format('Y-m-d'));
+                })->orWhere(DB::raw('LOWER(status)'), 'overdue');
+            })
             ->count();
 
-        // Completed This Year - documents with completed_at in selected year (half-open)
+        // Completed This Year - fallback to updated_at if completed_at is null
         $completedTotal = (clone $baseQuery)
-            ->whereNotNull('completed_at')
-            ->where('completed_at', '>=', $yearStart)
-            ->where('completed_at', '<', $yearEnd)
+            ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
+            ->where(function ($q) use ($yearStart, $yearEnd) {
+                $q->where(function ($sub) use ($yearStart, $yearEnd) {
+                    $sub->whereNotNull('completed_at')
+                        ->where('completed_at', '>=', $yearStart)
+                        ->where('completed_at', '<', $yearEnd);
+                })->orWhere(function ($sub) use ($yearStart, $yearEnd) {
+                    $sub->whereNull('completed_at')
+                        ->where('updated_at', '>=', $yearStart)
+                        ->where('updated_at', '<', $yearEnd);
+                });
+            })
             ->count();
 
-        // Received Today - documents received today
+        // Received Today - fallback to created_at if received_at is null
         $receivedToday = (clone $baseQuery)
-            ->whereNotNull('received_at')
-            ->where('received_at', '>=', $todayStart)
-            ->where('received_at', '<', $todayEnd)
+            ->where(function ($q) use ($todayStart, $todayEnd) {
+                $q->where(function ($sub) use ($todayStart, $todayEnd) {
+                    $sub->whereNotNull('received_at')
+                        ->where('received_at', '>=', $todayStart)
+                        ->where('received_at', '<', $todayEnd);
+                })->orWhere(function ($sub) use ($todayStart, $todayEnd) {
+                    $sub->whereNull('received_at')
+                        ->where('created_at', '>=', $todayStart)
+                        ->where('created_at', '<', $todayEnd);
+                });
+            })
             ->count();
 
         return [
