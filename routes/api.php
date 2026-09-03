@@ -66,10 +66,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
         $user = $request->user()->load(['roles', 'office', 'division', 'permissions', 'permissionOverrides']);
 
-        return UserResource::make($user);
+        return new \App\Http\Resources\UserResource($user);
     });
 
-    Route::post('/logout', function (Request $request) {
+      Route::post('/logout', function (Request $request) {
         $token = $request->user()->currentAccessToken();
         if ($token && method_exists($token, 'delete')) {
             $token->delete();
@@ -191,7 +191,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 'first_name' => 'sometimes|nullable|string|max:255',
                 'middle_name' => 'sometimes|nullable|string|max:255',
                 'last_name' => 'sometimes|nullable|string|max:255',
-                'email' => 'sometimes|nullable|email|max:255|unique:users,email,'.$user->id,
+                'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $user->id,
                 'contact_number' => 'sometimes|nullable|string|max:50',
                 'fullname' => 'sometimes|nullable|string|max:255',
                 'office' => 'sometimes|nullable|string|max:255',
