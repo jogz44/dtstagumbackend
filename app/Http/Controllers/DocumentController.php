@@ -797,7 +797,7 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function complete(Request $request, Document $document): JsonResponse
+    public function complete(Request $request, Document $document, DocumentWorkflowService $workflowService): JsonResponse
     {
         $validated = $request->validate([
             'remarks' => 'nullable|string',
@@ -805,8 +805,7 @@ class DocumentController extends Controller
 
         $statusBefore = $document->status;
 
-        $document->update([
-            'status' => 'completed',
+        $workflowService->transition($document, 'completed', [
             'remarks' => $validated['remarks'] ?? null,
         ]);
 
@@ -1264,7 +1263,7 @@ class DocumentController extends Controller
         abort_unless($isAuthorized, 403, 'You are not authorized to view this document.');
     }
 
-    public function receive(Request $request, Document $document): JsonResponse
+    public function receive(Request $request, Document $document, DocumentWorkflowService $workflowService): JsonResponse
     {
         $user = $request->user();
         $userOffice = $user->office?->name ?? 'HR Division';
@@ -1272,11 +1271,10 @@ class DocumentController extends Controller
         $statusBefore = $document->status;
         $fromOffice = $document->office_assignment ?? $document->origin_sender;
 
-        $document->update([
+        $workflowService->transition($document, 'pending', [
             'office_assignment' => $userOffice,
             'division_assignment' => $userDivision,
             'assigned_user' => $user->full_name,
-            'status' => 'pending',
         ]);
 
         $document->acknowledgements()->create([

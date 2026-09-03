@@ -46,6 +46,7 @@ class Document extends Model
         'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
         'assigned_user', 'is_read_only', 'status', 'due_date', 'notes',
+        'received_at', 'completed_at',
     ];
 
     protected function casts(): array
@@ -57,6 +58,8 @@ class Document extends Model
             'is_internal' => 'boolean',
             'is_read_only' => 'boolean',
             'due_date' => 'date:Y-m-d',
+            'received_at' => 'datetime',
+            'completed_at' => 'datetime',
         ];
     }
 

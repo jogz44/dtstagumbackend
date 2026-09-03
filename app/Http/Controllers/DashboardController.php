@@ -17,8 +17,16 @@ class DashboardController extends Controller
      */
     public function analytics(Request $request, DashboardAnalyticsService $analyticsService): JsonResponse
     {
+        $validated = $request->validate([
+            'year' => 'nullable|integer|min:2000|max:2100',
+            'range' => 'nullable|string',
+            'trend_range' => 'nullable|string',
+            'date_from' => 'nullable|date_format:Y-m-d',
+            'date_to' => 'nullable|date_format:Y-m-d|after_or_equal:date_from',
+        ]);
+
         try {
-            $filters = $request->only(['range', 'date_from', 'date_to']);
+            $filters = $request->only(['range', 'year', 'trend_range', 'date_from', 'date_to']);
             $data = $analyticsService->getAnalytics($request->user(), $filters);
 
             return response()->json($data);
