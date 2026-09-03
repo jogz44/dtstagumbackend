@@ -54,8 +54,9 @@ class DashboardAnalyticsService
         // 7. Performance Summary
         $performance = $this->calculatePerformanceSummary($baseAuthorizedQuery, $rangeQuery, $startDate, $endDate);
 
-        // 8. Yearly Overview (static cards that don't change with range selector)
-        $yearlyOverview = $this->calculateYearlyOverview($baseAuthorizedQuery);
+        // 8. Yearly Overview (static cards powered by selected year and event timestamps)
+        $year = (int) ($filters['year'] ?? Carbon::now('Asia/Manila')->year);
+        $yearlyOverview = $this->calculateYearlyOverview($baseAuthorizedQuery, $year);
 
         return [
             'range_info' => [
@@ -63,6 +64,7 @@ class DashboardAnalyticsService
                 'date_from' => $rangeInfo['date_from'],
                 'date_to' => $rangeInfo['date_to'],
                 'label' => $rangeInfo['label'],
+                'year' => $year,
             ],
             'summary' => $summary,
             'status_distribution' => $statusDistribution,
@@ -392,48 +394,53 @@ class DashboardAnalyticsService
         ];
     }
 
-    private function calculateYearlyOverview(Builder $baseQuery): array
+    private function calculateYearlyOverview(Builder $baseQuery, int $year): array
     {
-        $yearStart = Carbon::now()->startOfYear();
-        $yearEnd = Carbon::now()->endOfYear();
-        $today = Carbon::today();
+        $timezone = 'Asia/Manila';
+        $yearStart = Carbon::create($year, 1, 1, 0, 0, 0, $timezone);
+        $yearEnd = $yearStart->copy()->addYear();
+
+        $todayStart = Carbon::today($timezone)->startOfDay();
+        $todayEnd = $todayStart->copy()->addDay();
 
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
         $terminalStatuses = DocumentStatuses::TERMINAL;
 
-        // Received total (yearly) - documents with status 'received' created this year
+        // Total Received This Year - documents with received_at in selected year (half-open)
         $receivedTotal = (clone $baseQuery)
-            ->where(DB::raw('LOWER(status)'), 'received')
-            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->whereNotNull('received_at')
+            ->where('received_at', '>=', $yearStart)
+            ->where('received_at', '<', $yearEnd)
             ->count();
 
-        // Pending total (yearly) - active status documents created this year
+        // Pending total - current active status documents
         $pendingTotal = (clone $baseQuery)
             ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
-            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
             ->count();
 
-        // Overdue total (yearly) - overdue documents this year
+        // Overdue total - currently active overdue documents
         $overdueTotal = (clone $baseQuery)
             ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
             ->whereNotNull('due_date')
-            ->where('due_date', '<=', $today->format('Y-m-d'))
-            ->whereBetween('documents.created_at', [$yearStart, $yearEnd])
+            ->where('due_date', '<=', Carbon::today($timezone)->format('Y-m-d'))
             ->count();
 
-        // Completed total (yearly) - completed/released/approved this year
+        // Completed This Year - documents with completed_at in selected year (half-open)
         $completedTotal = (clone $baseQuery)
-            ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
-            ->whereBetween('documents.updated_at', [$yearStart, $yearEnd])
+            ->whereNotNull('completed_at')
+            ->where('completed_at', '>=', $yearStart)
+            ->where('completed_at', '<', $yearEnd)
             ->count();
 
-        // Received today - documents with status 'received' created today
+        // Received Today - documents received today
         $receivedToday = (clone $baseQuery)
-            ->where(DB::raw('LOWER(status)'), 'received')
-            ->whereDate('documents.created_at', $today)
+            ->whereNotNull('received_at')
+            ->where('received_at', '>=', $todayStart)
+            ->where('received_at', '<', $todayEnd)
             ->count();
 
         return [
+            'year' => $year,
             'received_total' => $receivedTotal,
             'pending_total' => $pendingTotal,
             'overdue_total' => $overdueTotal,
