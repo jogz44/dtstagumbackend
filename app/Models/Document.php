@@ -42,7 +42,8 @@ class Document extends Model
         'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'document_type',
         'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
-        'assigned_user', 'is_read_only', 'status', 'notes',
+        'assigned_user', 'assigned_user_id', 'received_at', 'due_at', 'completed_at',
+        'completed_by_user_id', 'is_read_only', 'status', 'notes',
     ];
 
     protected function casts(): array
@@ -53,6 +54,9 @@ class Document extends Model
             'send_to_all' => 'boolean',
             'is_internal' => 'boolean',
             'is_read_only' => 'boolean',
+            'received_at' => 'datetime',
+            'due_at' => 'datetime',
+            'completed_at' => 'datetime',
         ];
     }
 
@@ -79,5 +83,26 @@ class Document extends Model
     public function acknowledgements(): HasMany
     {
         return $this->hasMany(DocumentAcknowledgement::class);
+    }
+
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    public function completedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'completed_by_user_id');
+    }
+
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(DocumentAssignment::class);
+    }
+
+    public function statusHistory(): HasMany
+    {
+        return $this->hasMany(DocumentStatusHistory::class);
+
     }
 }

@@ -87,6 +87,7 @@ class DocumentController extends Controller
                 ...$validated,
                 'tracking_number' => 'DOC-'.Str::upper(Str::random(12)),
                 'created_by' => $request->user()->id,
+                'received_at' => now(),
                 // Receive/uploaded documents are immediately visible to their creator as outgoing.
                 'status' => 'outgoing',
             ]);

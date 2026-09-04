@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\DocumentWorkflowController;
+use App\Http\Controllers\PerformanceRankingController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
@@ -29,17 +31,34 @@ Route::post('/login', function (Request $request) {
         }
 
         $user->forceFill(['last_login_at' => now()])->save();
-        app(AuditService::class)->activity($user, 'auth.login_succeeded', 'Authentication', 'Logged in to the system.', $request);
+        app(AuditService::class)->activity(
+            $user,
+            'auth.login_succeeded',
+            'Authentication',
+            'Logged in to the system.',
+            $request
+        );
+
         $token = $user->createToken('auth-token')->plainTextToken;
 
         return response()->json([
             'message' => 'Login successful',
-            'user' => new \App\Http\Resources\UserResource($user->load(['office', 'division', 'permissionOverrides', 'roles'])),
+            'user' => new \App\Http\Resources\UserResource(
+                $user->load(['office', 'division', 'permissionOverrides', 'roles'])
+            ),
             'must_change_password' => $user->must_change_password,
             'token' => $token,
         ], 200);
     }
-    app(AuditService::class)->activity($user, 'auth.login_failed', 'Authentication', 'Failed login attempt.', $request, ['outcome' => 'failure']);
+
+    app(AuditService::class)->activity(
+        $user,
+        'auth.login_failed',
+        'Authentication',
+        'Failed login attempt.',
+        $request,
+        ['outcome' => 'failure']
+    );
 
     return response()->json([
         'message' => 'Invalid username or password',
@@ -48,7 +67,16 @@ Route::post('/login', function (Request $request) {
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
-        return response()->json($request->user());
+        $user = $request->user()->load([
+            'office',
+            'division',
+            'permissionOverrides',
+            'roles',
+        ]);
+
+        return response()->json(
+            new \App\Http\Resources\UserResource($user)
+        );
     });
 
     Route::post('/change-password', function (Request $request) {
@@ -60,7 +88,9 @@ Route::middleware('auth:sanctum')->group(function () {
         $user = $request->user();
 
         if (! Hash::check($request->current_password, $user->password)) {
-            return response()->json(['message' => 'Current password is incorrect.'], 422);
+            return response()->json([
+                'message' => 'Current password is incorrect.',
+            ], 422);
         }
 
         $user->update([
@@ -68,7 +98,14 @@ Route::middleware('auth:sanctum')->group(function () {
             'must_change_password' => false,
         ]);
 
-        app(AuditService::class)->accountHistory($user, $user, 'password.changed', 'Password was changed by the account owner.', [], $request);
+        app(AuditService::class)->accountHistory(
+            $user,
+            $user,
+            'password.changed',
+            'Password was changed by the account owner.',
+            [],
+            $request
+        );
 
         return response()->json([
             'message' => 'Password updated successfully.',
@@ -78,19 +115,106 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('password.changed')->group(function () {
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
+
         Route::post('/documents', [DocumentController::class, 'store']);
-        Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
-        Route::get('/organizations', [OrganizationController::class, 'index']);
-        Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
-        Route::get('/roles', [\App\Http\Controllers\RoleController::class, 'index']);
-        Route::put('/roles/{role}/permissions', [\App\Http\Controllers\RoleController::class, 'updatePermissions']);
-        Route::get('/users/{user}/history', [UserAuditController::class, 'history'])->withTrashed();
-        Route::get('/users/{user}/transaction-history', [UserAuditController::class, 'transactionHistory'])->withTrashed();
-        Route::get('/users/{user}/activity', [UserAuditController::class, 'activity'])->withTrashed();
-        Route::get('/users/{user}/security', [UserSecurityController::class, 'show'])->withTrashed();
-        Route::post('/users/{user}/password-reset', [UserSecurityController::class, 'resetPassword'])->withTrashed();
-        Route::delete('/users/{user}/sessions/{tokenId}', [UserSecurityController::class, 'revokeSession'])->withTrashed();
-        Route::delete('/users/{user}/sessions', [UserSecurityController::class, 'revokeOtherSessions'])->withTrashed();
+
+        // Document workflow routes
+        Route::post(
+            '/documents/{document}/assign',
+            [DocumentWorkflowController::class, 'assign']
+        )->middleware('can:documents.transfer');
+
+        Route::post(
+            '/documents/{document}/status',
+            [DocumentWorkflowController::class, 'transition']
+        )->middleware('can:documents.edit');
+
+        Route::post(
+            '/documents/{document}/complete',
+            [DocumentWorkflowController::class, 'complete']
+        )->middleware('can:documents.edit');
+
+        // Performance ranking routes
+        Route::get(
+            '/performance/ranking',
+            [PerformanceRankingController::class, 'ranking']
+        )->middleware('can:performance_ranking.view');
+
+        Route::get(
+            '/performance/summary',
+            [PerformanceRankingController::class, 'summary']
+        )->middleware('can:performance_ranking.view');
+
+        Route::get(
+            '/performance/users/{user}',
+            [PerformanceRankingController::class, 'profile']
+        )->middleware('can:performance_ranking.view');
+
+        Route::get(
+            '/performance/users/{user}/completed-documents',
+            [PerformanceRankingController::class, 'completedDocuments']
+        )->middleware('can:performance_ranking.view');
+
+        Route::get(
+            '/documents/{document}/timeline',
+            [DocumentController::class, 'timeline']
+        );
+
+        Route::get(
+            '/organizations',
+            [OrganizationController::class, 'index']
+        );
+
+        Route::get(
+            '/organizations/users',
+            [OrganizationController::class, 'getOfficeUsers']
+        );
+
+        Route::get(
+            '/roles',
+            [\App\Http\Controllers\RoleController::class, 'index']
+        );
+
+        Route::put(
+            '/roles/{role}/permissions',
+            [\App\Http\Controllers\RoleController::class, 'updatePermissions']
+        );
+
+        Route::get(
+            '/users/{user}/history',
+            [UserAuditController::class, 'history']
+        )->withTrashed();
+
+        Route::get(
+            '/users/{user}/transaction-history',
+            [UserAuditController::class, 'transactionHistory']
+        )->withTrashed();
+
+        Route::get(
+            '/users/{user}/activity',
+            [UserAuditController::class, 'activity']
+        )->withTrashed();
+
+        Route::get(
+            '/users/{user}/security',
+            [UserSecurityController::class, 'show']
+        )->withTrashed();
+
+        Route::post(
+            '/users/{user}/password-reset',
+            [UserSecurityController::class, 'resetPassword']
+        )->withTrashed();
+
+        Route::delete(
+            '/users/{user}/sessions/{tokenId}',
+            [UserSecurityController::class, 'revokeSession']
+        )->withTrashed();
+
+        Route::delete(
+            '/users/{user}/sessions',
+            [UserSecurityController::class, 'revokeOtherSessions']
+        )->withTrashed();
+
         Route::apiResource('users', UserController::class);
 
         Route::put('/me', function (Request $request) {
@@ -114,17 +238,24 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::get('/test-pmis', function () {
     try {
         $pdo = Illuminate\Support\Facades\DB::connection('pmis')->getPdo();
-        $data = Illuminate\Support\Facades\DB::connection('pmis')->table('vwActive')->select('office', 'divisions')->distinct()->limit(5)->get();
+
+        $data = Illuminate\Support\Facades\DB::connection('pmis')
+            ->table('vwActive')
+            ->select('office', 'divisions')
+            ->distinct()
+            ->limit(5)
+            ->get();
+
         return response()->json([
             'status' => 'success',
             'connection' => 'Connected successfully to SSMS SQL Server!',
-            'sample_data' => $data
+            'sample_data' => $data,
         ]);
     } catch (\Exception $e) {
         return response()->json([
             'status' => 'error',
             'message' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
+            'trace' => $e->getTraceAsString(),
         ], 500);
     }
 });
