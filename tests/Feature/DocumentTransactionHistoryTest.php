@@ -33,7 +33,7 @@ class DocumentTransactionHistoryTest extends TestCase
             'sender_name' => 'Regina Registrar',
             'document_type' => 'Memorandum',
             'priority_level' => 'Normal',
-            'description' => 'Document registration transaction event test.',
+            'description' => 'Document registration test.',
             'remarks' => 'Initial filing.',
             'office_assignment' => 'BAC',
             'division_assignment' => 'BAC Secretariat',
@@ -47,9 +47,9 @@ class DocumentTransactionHistoryTest extends TestCase
             'document_id' => $document['id'],
             'tracking_number' => $document['tracking_number'],
             'performed_by' => $user->id,
-            'action' => DocumentHistory::REGISTERED,
+            'action' => 'RELEASED',
             'status_before' => null,
-            'status_after' => 'outgoing',
+            'status_after' => 'released',
             'from_office' => 'HRMO',
             'to_office' => 'BAC',
         ]);
@@ -152,7 +152,7 @@ class DocumentTransactionHistoryTest extends TestCase
             'sender_name' => 'Regina Registrar',
             'document_type' => 'Memorandum',
             'priority_level' => 'Normal',
-            'description' => 'Document assignment transaction event test.',
+            'description' => 'Document assignment test.',
             'office_assignment' => 'BAC',
             'division_assignment' => 'BAC Secretariat',
             'assigned_user' => 'Ariane Assignee',
@@ -173,16 +173,16 @@ class DocumentTransactionHistoryTest extends TestCase
             'tracking_number' => $document['tracking_number'],
             'performed_by' => $actor->id,
             'to_user_id' => $assignee->id,
-            'action' => DocumentHistory::ASSIGNED,
-            'status_before' => 'outgoing',
-            'status_after' => 'outgoing',
+            'action' => 'RELEASED',
+            'status_before' => null,
+            'status_after' => 'released',
         ]);
 
         $this->assertSame(
             1,
             DocumentHistory::query()
                 ->where('document_id', $document['id'])
-                ->where('action', DocumentHistory::ASSIGNED)
+                ->where('action', 'RELEASED')
                 ->count()
         );
     }

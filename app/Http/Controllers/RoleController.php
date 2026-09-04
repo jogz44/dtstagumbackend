@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Permission;
 use App\Models\Role;
+use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -34,6 +35,34 @@ class RoleController extends Controller
             'roles' => $roles,
             'permissions' => $permissions,
         ]);
+    }
+
+    public function options(): JsonResponse
+    {
+        $rolesByName = Role::query()
+            ->where('guard_name', 'web')
+            ->whereIn('name', RoleNames::defaults())
+            ->get()
+            ->keyBy('name');
+
+        $options = collect(RoleNames::defaults())
+            ->map(function (string $roleName) use ($rolesByName): ?array {
+                $role = $rolesByName->get($roleName);
+
+                if (! $role) {
+                    return null;
+                }
+
+                return [
+                    'id' => $role->id,
+                    'name' => $role->name,
+                    'label' => RoleNames::label($role->name),
+                ];
+            })
+            ->filter()
+            ->values();
+
+        return response()->json($options);
     }
 
     public function updatePermissions(Request $request, Role $role): JsonResponse

@@ -14,3 +14,12 @@ if (config('services.pmis.sync_enabled')) {
         ->withoutOverlapping()
         ->appendOutputTo(storage_path('logs/pmis-sync.log'));
 }
+
+Schedule::command('documents:send-deadline-notifications')
+    ->hourly()
+    ->withoutOverlapping();
+
+Schedule::command('documents:auto-archive')
+    ->daily()
+    ->withoutOverlapping();
+

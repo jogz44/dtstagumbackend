@@ -17,7 +17,7 @@ class UserUpdateApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected User $superAdmin;
+    protected User $adminUser;
     protected User $targetUser;
     protected Office $office;
 
@@ -25,10 +25,10 @@ class UserUpdateApiTest extends TestCase
     {
         parent::setUp();
 
-        if (! DB::table('roles')->where('name', 'super_admin')->exists()) {
+        if (! DB::table('roles')->where('name', 'admin')->exists()) {
             DB::table('roles')->insert([
                 'id' => (string) Str::uuid(),
-                'name' => 'super_admin',
+                'name' => 'admin',
                 'guard_name' => 'web',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -45,9 +45,23 @@ class UserUpdateApiTest extends TestCase
             ]);
         }
 
+        DB::table('permissions')->updateOrInsert(
+            [
+                'name' => 'users.manage',
+                'guard_name' => 'web',
+            ],
+            [
+                'id' => DB::table('permissions')->where('name', 'users.manage')->where('guard_name', 'web')->value('id') ?: (string) Str::uuid(),
+                'group_name' => 'Users',
+                'description' => 'Manage user accounts',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]
+        );
+
         $this->office = Office::create(['name' => 'HR Office', 'code' => 'HRO']);
 
-        $this->superAdmin = User::create([
+        $this->adminUser = User::create([
             'username' => 'superadmin',
             'password' => bcrypt('password'),
             'first_name' => 'Super',
@@ -56,7 +70,11 @@ class UserUpdateApiTest extends TestCase
             'birthdate' => '1990-01-01',
             'is_active' => true,
         ]);
-        $this->superAdmin->assignRole('super_admin');
+        DB::table('model_has_roles')->insert([
+            'role_id' => DB::table('roles')->where('name', 'admin')->where('guard_name', 'web')->value('id'),
+            'model_type' => User::class,
+            'model_id' => $this->adminUser->id,
+        ]);
 
         $this->targetUser = User::create([
             'username' => 'john.doe',
@@ -68,24 +86,37 @@ class UserUpdateApiTest extends TestCase
             'position' => 'Staff',
             'is_active' => true,
         ]);
-        $this->targetUser->assignRole('employee');
+        DB::table('model_has_roles')->insert([
+            'role_id' => DB::table('roles')->where('name', 'employee')->where('guard_name', 'web')->value('id'),
+            'model_type' => User::class,
+            'model_id' => $this->targetUser->id,
+        ]);
 
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
+    }
+
+    public function test_user_update_allows_username_change(): void
+    {
+        $response = $this->putJson("/api/users/{$this->targetUser->id}", [
+            'username' => 'john.doe.updated',
+        ]);
+
+        $response->assertStatus(200);
+        $this->assertDatabaseHas('users', [
+            'id' => $this->targetUser->id,
+            'username' => 'john.doe.updated',
+        ]);
     }
 
     public function test_user_update_accepts_boolean_is_active(): void
     {
         $response = $this->putJson("/api/users/{$this->targetUser->id}", [
-            'first_name' => 'John',
-            'last_name' => 'Doe',
-            'position' => 'Senior Staff',
             'is_active' => false,
         ]);
 
         $response->assertStatus(200);
         $this->assertDatabaseHas('users', [
             'id' => $this->targetUser->id,
-            'position' => 'Senior Staff',
             'is_active' => false,
         ]);
     }
@@ -123,30 +154,51 @@ class UserUpdateApiTest extends TestCase
             ->assertJsonValidationErrors(['is_active']);
     }
 
-    public function test_super_admin_protected_fields_cannot_be_changed(): void
+    public function test_admin_deactivation_is_blocked_with_422(): void
     {
-        $response = $this->putJson("/api/users/{$this->superAdmin->id}", [
-            'first_name' => 'SuperUpdated',
-            'last_name' => 'AdminUpdated',
-            'position' => 'Lead Admin',
+        $response = $this->putJson("/api/users/{$this->adminUser->id}", [
             'is_active' => false,
-            'role' => 'employee',
         ]);
 
-        $response->assertStatus(200);
+        $response->assertStatus(422)
+            ->assertJson(['message' => 'This account cannot be deactivated.']);
 
-        $this->superAdmin->refresh();
+        $this->adminUser->refresh();
+        $this->assertTrue($this->adminUser->is_active);
+    }
 
-        $this->assertEquals('SuperUpdated', $this->superAdmin->first_name);
-        $this->assertEquals('Lead Admin', $this->superAdmin->position);
-        $this->assertTrue($this->superAdmin->is_active);
-        $this->assertTrue($this->superAdmin->hasRole('super_admin'));
+    public function test_user_update_rejects_forbidden_fields(): void
+    {
+        $forbiddenPayloads = [
+            ['first_name' => 'FAKE'],
+            ['last_name' => 'FAKE'],
+            ['employee_id' => 'EMP-999'],
+            ['employeeId' => 'EMP-999'],
+            ['birthdate' => '2000-01-01'],
+            ['birth_date' => '2000-01-01'],
+            ['office_id' => $this->office->id],
+            ['officeId' => $this->office->id],
+            ['division_id' => (string) Str::uuid()],
+            ['divisionId' => (string) Str::uuid()],
+            ['position' => 'NEW POSITION'],
+            ['employment_status' => 'Casual'],
+            ['role' => 'employee'],
+            ['password' => 'newpassword123'],
+            ['pmis_employee_id' => (string) Str::uuid()],
+            ['email' => 'fake@example.com'],
+            ['avatar_url' => 'https://example.com/avatar.png'],
+        ];
+
+        foreach ($forbiddenPayloads as $payload) {
+            $response = $this->putJson("/api/users/{$this->targetUser->id}", $payload);
+            $response->assertStatus(422);
+        }
     }
 
     public function test_user_update_records_activity_log_and_account_history(): void
     {
         $response = $this->putJson("/api/users/{$this->targetUser->id}", [
-            'position' => 'Division Officer',
+            'username' => 'john.doe.logged',
             'is_active' => false,
         ]);
 
@@ -154,12 +206,12 @@ class UserUpdateApiTest extends TestCase
 
         $this->assertDatabaseHas('account_history_events', [
             'subject_user_id' => $this->targetUser->id,
-            'actor_user_id' => $this->superAdmin->id,
+            'actor_user_id' => $this->adminUser->id,
             'event_type' => 'account.deactivated',
         ]);
 
         $this->assertDatabaseHas('activity_events', [
-            'actor_user_id' => $this->superAdmin->id,
+            'actor_user_id' => $this->adminUser->id,
             'resource_type' => 'User',
             'resource_id' => $this->targetUser->id,
             'activity_type' => 'account.deactivated',

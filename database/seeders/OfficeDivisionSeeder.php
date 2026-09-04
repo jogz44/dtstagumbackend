@@ -75,7 +75,7 @@ class OfficeDivisionSeeder extends Seeder
                 ['name' => $officeName],
                 [
                     'code'       => $officeCode,
-                    'short_name' => $officeName,
+                    'short_name' => Str::limit($officeName, 100, ''),
                     'is_active'  => true,
                 ]
             );
@@ -90,7 +90,7 @@ class OfficeDivisionSeeder extends Seeder
                     ],
                     [
                         'code'       => $divisionCode,
-                        'short_name' => $divisionName,
+                        'short_name' => Str::limit($divisionName, 100, ''),
                         'is_active'  => true,
                     ]
                 );

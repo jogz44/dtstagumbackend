@@ -14,6 +14,21 @@ use Illuminate\Validation\Rule;
 
 class UserAuditController extends Controller
 {
+    public function meHistory(Request $request, UserAuditAccess $access): JsonResponse
+    {
+        return $this->history($request, $request->user(), $access);
+    }
+
+    public function meActivity(Request $request, UserAuditAccess $access): JsonResponse
+    {
+        return $this->activity($request, $request->user(), $access);
+    }
+
+    public function meTransactionHistory(Request $request, UserAuditAccess $access): JsonResponse
+    {
+        return $this->transactionHistory($request, $request->user(), $access);
+    }
+
     public function history(Request $request, User $user, UserAuditAccess $access): JsonResponse
     {
         $access->authorize($request->user(), $user);
@@ -138,7 +153,7 @@ class UserAuditController extends Controller
         ]);
 
         $pageSize = $this->clampedPageSize((int) ($validated['page_size'] ?? $validated['per_page'] ?? 25));
-        $viewerCanSeeConfidential = $request->user()->can('documents.view_confidential');
+        $viewerCanSeeConfidential = $request->user()->can('documents.view_confidential') || $request->user()->can('can_view_confidential');
 
         $events = DocumentHistory::query()
             ->involvingUser($user)

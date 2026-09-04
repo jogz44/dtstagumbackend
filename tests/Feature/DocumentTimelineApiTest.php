@@ -19,7 +19,7 @@ class DocumentTimelineApiTest extends TestCase
 
     public function test_document_timeline_returns_canonical_history_chronologically(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $actor = $this->createUser('registrar', 'Regina', 'Registrar');
         $assignee = $this->createUser('assignee', 'Ariane', 'Assignee');
         $document = $this->createDocumentFor($actor, [
@@ -75,7 +75,7 @@ class DocumentTimelineApiTest extends TestCase
 
     public function test_document_timeline_uses_safe_fallbacks_for_optional_missing_users(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $actor = $this->createUser('registrar', 'Regina', 'Registrar');
         $document = $this->createDocumentFor($actor, [
             'assigned_user' => 'External Reviewer',
@@ -99,7 +99,7 @@ class DocumentTimelineApiTest extends TestCase
 
     public function test_confidential_document_timeline_redacts_sensitive_fields_without_permission(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $actor = $this->createUser('registrar', 'Regina', 'Registrar');
         $assignee = $this->createUser('assignee', 'Ariane', 'Assignee');
         $document = $this->createDocumentFor($actor, [
@@ -173,7 +173,7 @@ class DocumentTimelineApiTest extends TestCase
 
     public function test_unknown_canonical_action_is_returned_safely_in_timeline(): void
     {
-        $admin = $this->createSuperAdmin();
+        $admin = $this->createAdminUser();
         $actor = $this->createUser('registrar', 'Regina', 'Registrar');
         $document = $this->createDocumentFor($actor);
         $event = $document->histories()->create([
@@ -192,10 +192,21 @@ class DocumentTimelineApiTest extends TestCase
             ->assertJsonPath('data.0.action', 'TRANSFERRED_TO_OFFICE');
     }
 
-    private function createSuperAdmin(): User
+    public function test_unopened_count_endpoint_resolves_correctly_without_model_not_found_error(): void
+    {
+        $user = $this->createUser('testuser', 'Test', 'User');
+        Sanctum::actingAs($user);
+
+        $response = $this->getJson('/api/documents/unopened-count');
+
+        $response->assertOk()
+            ->assertJsonStructure(['count']);
+    }
+
+    private function createAdminUser(): User
     {
         $admin = $this->createUser('admin'.Str::lower(Str::random(5)), 'Ada', 'Admin');
-        $role = Role::firstOrCreate(['name' => 'super_admin', 'guard_name' => 'web']);
+        $role = Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web']);
         $admin->assignRole($role);
 
         return $admin;

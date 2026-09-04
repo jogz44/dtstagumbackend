@@ -40,6 +40,10 @@ class DocumentHistory extends Model
     public const RELEASED = 'RELEASED';
     public const ASSIGNED = 'ASSIGNED';
     public const REASSIGNED = 'REASSIGNED';
+    public const COMPLETED = 'COMPLETED';
+    public const RETRIEVED = 'RETRIEVED';
+    public const EDITED = 'EDITED';
+    public const ACKNOWLEDGED = 'ACKNOWLEDGED';
 
     public const EVENT_TYPES = [
         self::REGISTERED,
@@ -53,6 +57,10 @@ class DocumentHistory extends Model
         self::RELEASED,
         self::ASSIGNED,
         self::REASSIGNED,
+        self::COMPLETED,
+        self::RETRIEVED,
+        self::EDITED,
+        self::ACKNOWLEDGED,
     ];
 
     public $incrementing = false;
@@ -137,7 +145,7 @@ class DocumentHistory extends Model
      * @param array $attributes
      * @return self
      */
-    public static function record(Document $document, string $eventType, User $performedBy, array $attributes = []): self
+    public static function record(Document $document, string $eventType, ?User $performedBy = null, array $attributes = []): self
     {
         $eventType = strtoupper($eventType);
 
@@ -149,7 +157,9 @@ class DocumentHistory extends Model
             ? (string) $attributes['tracking_number']
             : (string) $document->getAttribute('tracking_number');
 
-        $performedById = (string) $performedBy->getKey();
+        $performedById = $performedBy
+            ? (string) $performedBy->getKey()
+            : ($attributes['performed_by'] ?? $document->created_by ?? null);
 
         return $document->histories()->create([
             ...$attributes,

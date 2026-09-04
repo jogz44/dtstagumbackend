@@ -16,7 +16,7 @@ class UserPasswordResetApiTest extends TestCase
 {
     use RefreshDatabase;
 
-    protected User $superAdmin;
+    protected User $adminUser;
     protected User $targetUser;
     protected Office $office;
 
@@ -24,10 +24,10 @@ class UserPasswordResetApiTest extends TestCase
     {
         parent::setUp();
 
-        if (! DB::table('roles')->where('name', 'super_admin')->exists()) {
+        if (! DB::table('roles')->where('name', 'admin')->exists()) {
             DB::table('roles')->insert([
                 'id' => (string) Str::uuid(),
-                'name' => 'super_admin',
+                'name' => 'admin',
                 'guard_name' => 'web',
                 'created_at' => now(),
                 'updated_at' => now(),
@@ -46,7 +46,7 @@ class UserPasswordResetApiTest extends TestCase
 
         $this->office = Office::create(['name' => 'HR Office', 'code' => 'HRO']);
 
-        $this->superAdmin = User::create([
+        $this->adminUser = User::create([
             'username' => 'superadmin',
             'password' => bcrypt('password'),
             'first_name' => 'Super',
@@ -55,7 +55,7 @@ class UserPasswordResetApiTest extends TestCase
             'birthdate' => '1990-01-01',
             'is_active' => true,
         ]);
-        $this->superAdmin->assignRole('super_admin');
+        $this->adminUser->assignRole('admin');
 
         $this->targetUser = User::create([
             'username' => 'targetuser',
@@ -70,9 +70,9 @@ class UserPasswordResetApiTest extends TestCase
         $this->targetUser->assignRole('employee');
     }
 
-    public function test_super_admin_can_reset_user_password_to_birthdate(): void
+    public function test_admin_can_reset_user_password_to_birthdate(): void
     {
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
 
         $this->targetUser->createToken('active-session');
         $this->assertCount(1, $this->targetUser->tokens);
@@ -94,12 +94,12 @@ class UserPasswordResetApiTest extends TestCase
 
         $this->assertDatabaseHas('account_history_events', [
             'subject_user_id' => $this->targetUser->id,
-            'actor_user_id' => $this->superAdmin->id,
+            'actor_user_id' => $this->adminUser->id,
             'event_type' => 'password.reset',
         ]);
 
         $this->assertDatabaseHas('activity_events', [
-            'actor_user_id' => $this->superAdmin->id,
+            'actor_user_id' => $this->adminUser->id,
             'activity_type' => 'password.reset',
         ]);
     }
@@ -125,7 +125,7 @@ class UserPasswordResetApiTest extends TestCase
 
     public function test_cannot_reset_password_for_deleted_user(): void
     {
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
 
         $this->targetUser->delete();
 
@@ -137,7 +137,7 @@ class UserPasswordResetApiTest extends TestCase
 
     public function test_cannot_reset_password_when_birthdate_missing(): void
     {
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
 
         $noBirthdateUser = User::create([
             'username' => 'nobirthdate',
@@ -157,7 +157,7 @@ class UserPasswordResetApiTest extends TestCase
 
     public function test_user_can_login_with_temporary_password_and_must_change_password(): void
     {
-        Sanctum::actingAs($this->superAdmin);
+        Sanctum::actingAs($this->adminUser);
         $this->postJson("/api/users/{$this->targetUser->id}/password-reset");
 
         $loginResponse = $this->postJson('/api/login', [

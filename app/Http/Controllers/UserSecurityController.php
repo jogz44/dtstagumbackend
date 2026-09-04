@@ -13,6 +13,21 @@ use Illuminate\Support\Facades\Hash;
 
 class UserSecurityController extends Controller
 {
+    public function meShow(Request $request): JsonResponse
+    {
+        return $this->show($request, $request->user());
+    }
+
+    public function meRevokeSession(Request $request, int $tokenId, AuditService $audit): JsonResponse
+    {
+        return $this->revokeSession($request, $request->user(), $tokenId, $audit);
+    }
+
+    public function meRevokeOtherSessions(Request $request, AuditService $audit): JsonResponse
+    {
+        return $this->revokeOtherSessions($request, $request->user(), $audit);
+    }
+
     public function show(Request $request, User $user): JsonResponse
     {
         $this->authorizeSecurityRead($request->user(), $user);
@@ -61,13 +76,15 @@ class UserSecurityController extends Controller
             ], 422);
         }
 
-        if (! $user->birthdate) {
+        $birthDate = $user->pmisEmployee?->birth_date ?? ($user->birthdate ? Carbon::parse($user->birthdate) : null);
+
+        if (! $birthDate) {
             return response()->json([
                 'message' => 'Cannot reset password because this user has no birthdate on file.',
             ], 422);
         }
 
-        $temporaryPassword = Carbon::parse($user->birthdate)->format('mdY');
+        $temporaryPassword = $birthDate->format('mdY');
 
         DB::transaction(function () use ($request, $user, $audit, $temporaryPassword) {
             $user->tokens()->delete();
@@ -112,6 +129,7 @@ class UserSecurityController extends Controller
             ], 422);
         }
 
+        /** @var \Laravel\Sanctum\PersonalAccessToken|null $token */
         $token = $user->tokens()->whereKey($tokenId)->first();
 
         if (! $token) {
@@ -186,7 +204,7 @@ class UserSecurityController extends Controller
 
     private function authorizeSecurityRead(User $authUser, User $targetUser): void
     {
-        if ($authUser->hasRole(RoleNames::ADMIN) || $authUser->id === $targetUser->id) {
+        if ($authUser->username === 'admin' || $authUser->hasAnyRole(RoleNames::adminRoles()) || $authUser->id === $targetUser->id) {
             return;
         }
 
@@ -203,7 +221,12 @@ class UserSecurityController extends Controller
 
     private function authorizeSecurityAction(User $authUser, ?User $targetUser = null): void
     {
-        if ($authUser->hasRole(RoleNames::ADMIN)) {
+        if (
+            $authUser->username === 'admin'
+            || $authUser->hasAnyRole(RoleNames::adminRoles())
+            || $this->hasPermission($authUser, 'users.reset-password')
+            || $this->hasPermission($authUser, 'users.manage')
+        ) {
             return;
         }
 
@@ -211,6 +234,15 @@ class UserSecurityController extends Controller
             return;
         }
 
-        abort(403, 'Only administrators or the account owner can manage security actions.');
+        abort(403, 'Only administrators or authorized security managers can perform this action.');
+    }
+
+    private function hasPermission(User $authUser, string $permission): bool
+    {
+        try {
+            return $authUser->hasPermissionTo($permission);
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

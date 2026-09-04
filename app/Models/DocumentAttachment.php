@@ -15,7 +15,7 @@ class DocumentAttachment extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'document_id', 'disk', 'path', 'original_name', 'mime_type', 'size',
+        'document_id', 'disk', 'path', 'original_name', 'mime_type', 'size', 'type',
     ];
 
     public function document(): BelongsTo
