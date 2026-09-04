@@ -46,7 +46,71 @@ class DocumentController extends Controller
             'acknowledgements.user.office',
         ]);
 
-        if ($request->query('attention') === 'due') {
+        $searchParam = $request->query('search') ?? $request->query('q');
+        if (! empty($searchParam)) {
+            $searchTrimmed = trim($searchParam);
+            $officeName = $user->office?->name;
+            $officeNames = Document::getSimilarOfficeNames($officeName);
+
+            $query = Document::query()->with([
+                'creator',
+                'creator.office',
+                'attachments',
+                'acknowledgements' => fn ($query) => $query->latest(),
+                'acknowledgements.user:id,first_name,last_name,username,is_active,position,office_id',
+                'acknowledgements.user.office',
+            ])->where(function ($qConf) use ($user) {
+                $canSeeConfidential = $user->can('documents.view_confidential')
+                    || $user->hasAnyRole(RoleNames::adminRoles())
+                    || $user->username === 'admin';
+                if (! $canSeeConfidential) {
+                    $qConf->where('is_confidential', false)
+                        ->orWhere('created_by', $user->id)
+                        ->orWhere('assigned_user', $user->full_name)
+                        ->orWhere('assigned_user', (string) $user->id);
+                }
+            })
+              ->where(function ($qUserScope) use ($user, $officeNames) {
+                  $qUserScope->where('created_by', $user->id)
+                      ->orWhere('assigned_user', (string) $user->id)
+                      ->orWhere('assigned_user', $user->full_name)
+                      ->orWhere('assigned_user', $user->username)
+                      ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                          $qAck->where('user_id', $user->id);
+                      })
+                      ->orWhereHas('histories', function ($qH) use ($user, $officeNames) {
+                          $qH->where('performed_by', $user->id)
+                             ->orWhere('from_user_id', $user->id)
+                             ->orWhere('to_user_id', $user->id);
+                          if (! empty($officeNames)) {
+                              $qH->orWhereIn('from_office', $officeNames)
+                                 ->orWhereIn('to_office', $officeNames);
+                          }
+                      })
+                      ->orWhereHas('creator', function ($qC) use ($user) {
+                          if ($user->office_id) {
+                              $qC->where('office_id', $user->office_id);
+                          }
+                      });
+                  if (! empty($officeNames)) {
+                      $qUserScope->orWhereIn('office_assignment', $officeNames)
+                         ->orWhereIn('origin_sender', $officeNames);
+                  }
+              })
+              ->where(function ($qSearch) use ($searchTrimmed) {
+                  $qSearch->where('tracking_number', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('description', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('origin_sender', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('sender_name', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('issued_by', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('office_assignment', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('division_assignment', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('document_type', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('assigned_user', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('remarks', 'LIKE', "%{$searchTrimmed}%")
+                      ->orWhere('status', 'LIKE', "%{$searchTrimmed}%");
+              });
+        } elseif ($request->query('attention') === 'due') {
             // The canonical authorized due scope replaces tab-specific scopes.
         } elseif ($tab === 'my') {
             $query->forMyDocuments($user);
@@ -602,8 +666,24 @@ class DocumentController extends Controller
             'office_assignment' => $destOffice,
             'division_assignment' => $destDivision,
             'assigned_user' => $assignedName,
-            'status' => 'pending',
+            'status' => 'transferred',
         ]);
+
+        if ($targetUser) {
+            $acknowledgement = $document->acknowledgements()->create([
+                'user_id' => $targetUser->id,
+                'assigned_name' => $targetUser->full_name,
+                'from_office' => $fromOffice,
+                'remarks' => 'Pending acknowledgement (Transferred).',
+            ]);
+
+            app(DocumentNotificationService::class)->notifyReceived(
+                $document,
+                $targetUser,
+                $currentUser,
+                $acknowledgement->id,
+            );
+        }
 
         $remarks = ! empty($validated['remarks']) ? $validated['remarks'] : 'Document transferred.';
 
@@ -612,11 +692,12 @@ class DocumentController extends Controller
             'to_division_id' => $targetUser?->division_id,
             'remarks' => $remarks,
             'from_office' => $fromOffice,
-            'to_office' => null,
+            'to_office' => $destOffice,
             'status_before' => $statusBefore,
-            'status_after' => 'pending',
+            'status_after' => 'transferred',
             'metadata' => [
                 'assigned_name' => $document->assigned_user,
+                'to_office' => $destOffice,
             ],
         ]);
 
@@ -913,17 +994,32 @@ class DocumentController extends Controller
 
     public function getDocumentTypes(): JsonResponse
     {
-        $types = Document::query()
-            ->whereNotNull('document_type')
-            ->where('document_type', '!=', '')
-            ->distinct()
-            ->pluck('document_type')
-            ->toArray();
+        $defaults = ['Venue', 'Memorandum'];
 
-        $defaults = ['Venue', 'Memo', 'Letter', 'Report'];
-        $combined = array_values(array_unique(array_merge($defaults, $types)));
+        return response()->json($defaults);
+    }
 
-        return response()->json($combined);
+    public function checkLibraryUsage(Request $request): JsonResponse
+    {
+        $type = trim((string) $request->query('type', ''));
+        $priority = trim((string) $request->query('priority', ''));
+
+        $typeCount = 0;
+        if ($type !== '') {
+            $typeCount = Document::whereRaw('LOWER(document_type) = ?', [strtolower($type)])->count();
+        }
+
+        $priorityCount = 0;
+        if ($priority !== '') {
+            $priorityCount = Document::whereRaw('LOWER(priority_level) = ?', [strtolower($priority)])->count();
+        }
+
+        return response()->json([
+            'type_count' => $typeCount,
+            'priority_count' => $priorityCount,
+            'is_type_used' => $typeCount > 0,
+            'is_priority_used' => $priorityCount > 0,
+        ]);
     }
 
     /**
@@ -1011,11 +1107,19 @@ class DocumentController extends Controller
         $user = $request->user();
 
         $assignedName = $document->assigned_user;
-        if (empty($assignedName)) {
-            return response()->json(['message' => 'Document has no assigned user.'], 422);
+        $targetUser = null;
+
+        if (! empty($assignedName)) {
+            $targetUser = $this->resolveAssignedUser($assignedName);
         }
 
-        $targetUser = $this->resolveAssignedUser($assignedName);
+        if (! $targetUser) {
+            $lastAck = $document->acknowledgements()->whereNotNull('user_id')->latest()->first();
+            if ($lastAck && $lastAck->user) {
+                $targetUser = $lastAck->user;
+            }
+        }
+
         if (! $targetUser) {
             return response()->json(['message' => 'Could not resolve the assigned user.'], 422);
         }
@@ -1025,18 +1129,10 @@ class DocumentController extends Controller
             ->where('user_id', $targetUser->id)
             ->delete();
 
-        app(DocumentNotificationService::class)->notifyReceived($document, $targetUser, $user);
-        app(DocumentNotificationService::class)->notifyPending($document, $targetUser);
-
-        DocumentHistory::record($document, 'FORCE_NOTIFIED', $user, [
-            'to_user_id' => $targetUser->id,
-            'remarks' => $request->input('remarks') ?? 'Force notification sent by '.$user->full_name.'.',
-            'status_before' => $document->status,
-            'status_after' => $document->status,
-        ]);
+        app(DocumentNotificationService::class)->notifyForce($document, $targetUser, $user);
 
         return response()->json([
-            'message' => 'Notification sent to '.$assignedName.'.',
+            'message' => 'Notification sent.',
         ]);
     }
 
@@ -1426,7 +1522,7 @@ class DocumentController extends Controller
 
                 $title = match ($action) {
                     'REGISTERED' => 'Document received',
-                    'TRANSFERRED' => "Document transferred",
+                    'TRANSFERRED' => "Document transmitted",
                     'RECEIVED' => 'Document received',
                     'EDITED' => 'Document edited',
                     'COMPLETED' => 'Document completed',
@@ -1467,8 +1563,8 @@ class DocumentController extends Controller
                 'document_type' => $document->document_type,
                 'priority' => $document->priority_level,
                 'origin' => $document->origin_sender ?? $document->office_assignment ?? 'City HR Office',
-                'contact_person' => $document->sender_name ?? $document->creator?->full_name ?? 'HR Officer',
-                'contact_number' => $document->creator?->phone ?? $document->creator?->contact_number ?? '0956-477-897',
+                'contact_person' => $document->sender_name ?? $document->issued_by ?? $document->creator?->full_name ?? '—',
+                'contact_number' => $document->contact_number ?? $document->creator?->contact_number ?? $document->creator?->phone ?? '—',
                 'status' => $document->status,
                 'due_date' => $document->due_date?->format('M d, Y'),
                 'created_at' => $document->created_at?->format('M d, Y'),

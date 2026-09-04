@@ -16,6 +16,33 @@ class DocumentNotificationService
     public const NON_ACTIONABLE_STATUSES = DocumentStatuses::TERMINAL;
 
     /**
+     * Notify user when an admin or supervisor force-notifies a document to them.
+     */
+    public function notifyForce(
+        Document $document,
+        User $receiver,
+        ?User $sender = null
+    ): ?Notification {
+        $key = "doc:{$document->id}:force:user:{$receiver->id}:" . now()->timestamp;
+        $senderName = $sender?->full_name ?: $sender?->username ?: 'Administrator';
+        $trackingNo = $document->tracking_number;
+
+        return $this->createIfNotExists([
+            'user_id' => $receiver->id,
+            'document_id' => $document->id,
+            'type' => 'document.force_notify',
+            'title' => 'Force notification',
+            'message' => "{$trackingNo} requires your immediate action (sent by {$senderName}).",
+            'notification_key' => $key,
+            'metadata' => [
+                'tracking_number' => $trackingNo,
+                'sender_id' => $sender?->id,
+                'sender_name' => $senderName,
+            ],
+        ]);
+    }
+
+    /**
      * Notify user when a document is assigned or routed to them.
      */
     public function notifyReceived(
@@ -47,152 +74,64 @@ class DocumentNotificationService
     }
 
     /**
-     * Notify document originator/creator when a document is completed/approved.
+     * Notify document originator/creator when a document is completed/approved (disabled per notification policy).
      */
     public function notifyApproved(Document $document, User $actor): ?Notification
     {
-        $creator = $document->creator;
-
-        if (! $creator) {
-            return null;
-        }
-
-        // Do not notify creator if they completed/approved it themselves
-        if ($creator->id === $actor->id) {
-            return null;
-        }
-
-        $key = "doc:{$document->id}:approved:user:{$creator->id}";
-        $actorName = $actor->full_name ?: 'Recipient';
-        $trackingNo = $document->tracking_number;
-
-        return $this->createIfNotExists([
-            'user_id' => $creator->id,
-            'document_id' => $document->id,
-            'type' => 'document.approved',
-            'title' => 'Document approved',
-            'message' => "{$trackingNo} was approved and marked complete by {$actorName}.",
-            'notification_key' => $key,
-            'metadata' => [
-                'tracking_number' => $trackingNo,
-                'approved_by_id' => $actor->id,
-                'approved_by_name' => $actorName,
-            ],
-        ]);
+        return null;
     }
 
     /**
-     * Notify current responsible user that a document requires their attention/action.
+     * Notify current responsible user that a document requires their attention/action (disabled per notification policy).
      */
     public function notifyPending(Document $document, User $responsibleUser): ?Notification
     {
-        $status = strtolower((string) $document->status);
-        if (in_array($status, self::NON_ACTIONABLE_STATUSES, true)) {
-            $isAssigned = $document->assigned_user === $responsibleUser->full_name ||
-                          $document->assigned_user === $responsibleUser->id ||
-                          $document->assigned_user === $responsibleUser->username;
-            if (! ($status === 'released' && $isAssigned)) {
-                return null;
-            }
-        }
-
-        $key = "doc:{$document->id}:pending:user:{$responsibleUser->id}";
-        $trackingNo = $document->tracking_number;
-
-        return $this->createIfNotExists([
-            'user_id' => $responsibleUser->id,
-            'document_id' => $document->id,
-            'type' => 'document.pending',
-            'title' => 'Document needs attention',
-            'message' => "{$trackingNo} requires your action.",
-            'notification_key' => $key,
-            'metadata' => [
-                'tracking_number' => $trackingNo,
-                'status' => $document->status,
-            ],
-        ]);
+        return null;
     }
 
     /**
-     * Notify responsible user when a document deadline is approaching.
+     * Notify responsible user when a document is due tomorrow.
      */
     public function notifyDueSoon(Document $document, User $responsibleUser, int $days): ?Notification
     {
+        if ($days !== 1) {
+            return null;
+        }
+
         if (in_array(strtolower((string) $document->status), self::NON_ACTIONABLE_STATUSES, true)) {
             return null;
         }
 
-        $key = "doc:{$document->id}:due_soon:{$days}:user:{$responsibleUser->id}";
+        $key = "doc:{$document->id}:due_soon:1:user:{$responsibleUser->id}";
         $trackingNo = $document->tracking_number;
         $formattedDate = $document->due_date ? $document->due_date->format('F j, Y') : '';
-
-        $title = $days === 1 ? 'Document due tomorrow' : "Document due in {$days} days";
-        $message = $days === 1
-            ? "{$trackingNo} requires your attention before {$formattedDate}."
-            : "{$trackingNo} is due on {$formattedDate}.";
 
         return $this->createIfNotExists([
             'user_id' => $responsibleUser->id,
             'document_id' => $document->id,
-            'type' => 'document.due_soon',
-            'title' => $title,
-            'message' => $message,
+            'type' => 'document.due_tomorrow',
+            'title' => 'Document due tomorrow',
+            'message' => "{$trackingNo} is due tomorrow ({$formattedDate}).",
             'notification_key' => $key,
             'metadata' => [
                 'tracking_number' => $trackingNo,
-                'days_remaining' => $days,
+                'days_remaining' => 1,
                 'due_date' => $document->due_date?->toDateString(),
             ],
         ]);
     }
 
     /**
-     * Notify responsible user when a document deadline has passed.
+     * Notify responsible user when a document deadline has passed (disabled per notification policy).
      */
     public function notifyOverdue(Document $document, User $responsibleUser): ?Notification
     {
-        if (in_array(strtolower((string) $document->status), self::NON_ACTIONABLE_STATUSES, true)) {
-            return null;
-        }
-
-        $key = "doc:{$document->id}:overdue:user:{$responsibleUser->id}";
-        $trackingNo = $document->tracking_number;
-        $formattedDate = $document->due_date ? $document->due_date->format('F j, Y') : 'its due date';
-
-        return $this->createIfNotExists([
-            'user_id' => $responsibleUser->id,
-            'document_id' => $document->id,
-            'type' => 'document.overdue',
-            'title' => 'Document overdue',
-            'message' => "{$trackingNo} passed its due date on {$formattedDate} and requires attention.",
-            'notification_key' => $key,
-            'metadata' => [
-                'tracking_number' => $trackingNo,
-                'due_date' => $document->due_date?->toDateString(),
-            ],
-        ]);
+        return null;
     }
 
     public function notifyDueToday(Document $document, User $responsibleUser): ?Notification
     {
-        if (in_array(strtolower((string) $document->status), self::NON_ACTIONABLE_STATUSES, true)) {
-            return null;
-        }
-
-        $trackingNo = $document->tracking_number;
-
-        return $this->createIfNotExists([
-            'user_id' => $responsibleUser->id,
-            'document_id' => $document->id,
-            'type' => 'document.due_today',
-            'title' => 'Document due today',
-            'message' => "{$trackingNo} is due today and requires your attention.",
-            'notification_key' => "doc:{$document->id}:due_today:user:{$responsibleUser->id}",
-            'metadata' => [
-                'tracking_number' => $trackingNo,
-                'due_date' => $document->due_date?->toDateString(),
-            ],
-        ]);
+        return null;
     }
 
     public function markAssignmentNotificationsRead(Document $document, User $user): int
@@ -200,7 +139,7 @@ class DocumentNotificationService
         return Notification::query()
             ->forUser($user->id)
             ->where('document_id', $document->id)
-            ->whereIn('type', ['document.received', 'document.pending'])
+            ->whereIn('type', ['document.received', 'document.force_notify', 'document.due_tomorrow', 'document.due_soon'])
             ->unread()
             ->update(['read_at' => now()]);
     }

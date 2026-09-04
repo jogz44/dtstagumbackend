@@ -9,6 +9,29 @@ use Illuminate\Http\Request;
 class NotificationController extends Controller
 {
     /**
+     * Allowed notification types per policy:
+     * 1. Force notification
+     * 2. Document transmitted / received
+     * 3. Document due tomorrow
+     */
+    protected function scopeAllowedNotifications($query)
+    {
+        $allowedTypes = ['document.force_notify', 'document.received', 'document.due_tomorrow', 'document.due_soon'];
+
+        return $query->whereIn('type', $allowedTypes)
+            ->where(function ($q) {
+                $q->whereIn('type', ['document.force_notify', 'document.received', 'document.due_tomorrow'])
+                  ->orWhere(function ($sub) {
+                      $sub->where('type', 'document.due_soon')
+                          ->where(function ($inner) {
+                              $inner->where('title', 'like', '%tomorrow%')
+                                    ->orWhere('message', 'like', '%tomorrow%');
+                          });
+                  });
+            });
+    }
+
+    /**
      * Get paginated notifications for the authenticated user.
      */
     public function index(Request $request): JsonResponse
@@ -16,8 +39,11 @@ class NotificationController extends Controller
         $user = $request->user();
 
         $query = Notification::query()
-            ->where('user_id', $user->id)
-            ->with(['document:id,tracking_number,document_type,status,due_date']);
+            ->where('user_id', $user->id);
+
+        $this->scopeAllowedNotifications($query);
+
+        $query->with(['document:id,tracking_number,document_type,status,due_date']);
 
         if ($request->filled('type')) {
             $query->where('type', $request->query('type'));
@@ -33,6 +59,10 @@ class NotificationController extends Controller
         $perPage = max(1, min((int) $request->query('per_page', 10), 50));
         $paginator = $query->latest('created_at')->paginate($perPage);
 
+        $unreadCountQuery = Notification::where('user_id', $user->id);
+        $this->scopeAllowedNotifications($unreadCountQuery);
+        $unreadCount = $unreadCountQuery->unread()->count();
+
         return response()->json([
             'data' => $paginator->items(),
             'pagination' => [
@@ -41,7 +71,7 @@ class NotificationController extends Controller
                 'total' => $paginator->total(),
                 'last_page' => $paginator->lastPage(),
             ],
-            'unread_count' => Notification::where('user_id', $user->id)->unread()->count(),
+            'unread_count' => $unreadCount,
         ]);
     }
 
@@ -50,9 +80,9 @@ class NotificationController extends Controller
      */
     public function unreadCount(Request $request): JsonResponse
     {
-        $count = Notification::where('user_id', $request->user()->id)
-            ->unread()
-            ->count();
+        $query = Notification::where('user_id', $request->user()->id);
+        $this->scopeAllowedNotifications($query);
+        $count = $query->unread()->count();
 
         return response()->json([
             'unread_count' => $count,

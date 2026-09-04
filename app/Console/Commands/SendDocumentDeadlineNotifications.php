@@ -73,14 +73,8 @@ class SendDocumentDeadlineNotifications extends Command
                 $dueDate = $document->due_date->startOfDay();
                 $daysUntilDue = (int) $today->diffInDays($dueDate, false);
 
-                if ($daysUntilDue > 0 && in_array($daysUntilDue, $reminderDays, true)) {
-                    $notificationService->notifyDueSoon($document, $responsibleUser, $daysUntilDue);
-                    $processedCount++;
-                } elseif ($daysUntilDue === 0) {
-                    $notificationService->notifyDueToday($document, $responsibleUser);
-                    $processedCount++;
-                } elseif ($daysUntilDue < 0) {
-                    $notificationService->notifyOverdue($document, $responsibleUser);
+                if ($daysUntilDue === 1) {
+                    $notificationService->notifyDueSoon($document, $responsibleUser, 1);
                     $processedCount++;
                 }
             }

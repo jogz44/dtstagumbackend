@@ -62,41 +62,53 @@ class DocumentNotificationTest extends TestCase
         ]);
     }
 
-    public function test_creator_gets_notification_when_document_is_completed(): void
+    public function test_force_notify_generates_notification(): void
     {
-        $creator = $this->createUser('creator_user', 'Creator', 'User');
-        $processor = $this->createUser('processor_user', 'Processor', 'User');
+        $sender = $this->createUser('sender_user', 'Sender', 'User');
+        $receiver = $this->createUser('receiver_user', 'Receiver', 'User');
 
         $document = Document::create([
             'id' => (string) Str::uuid(),
-            'tracking_number' => 'DOC-TEST-002',
-            'created_by' => $creator->id,
-            'origin_sender' => 'Creator Office',
-            'sender_name' => 'Creator User',
+            'tracking_number' => 'DOC-FORCE-001',
+            'created_by' => $sender->id,
+            'origin_sender' => 'Sender Office',
+            'sender_name' => 'Sender User',
             'document_type' => 'Letter',
             'priority_level' => 'High',
-            'description' => 'Test document for completion',
+            'description' => 'Test document for force notification',
+            'assigned_user' => $receiver->full_name,
             'status' => 'outgoing',
         ]);
 
-        Sanctum::actingAs($processor);
+        Sanctum::actingAs($sender);
 
-        $response = $this->postJson("/api/documents/{$document->id}/complete", [
-            'remarks' => 'Completed action.',
-        ]);
-
+        $response = $this->postJson("/api/documents/{$document->id}/force-notify");
         $response->assertOk();
 
         $this->assertDatabaseHas('notifications', [
-            'user_id' => $creator->id,
+            'user_id' => $receiver->id,
             'document_id' => $document->id,
-            'type' => 'document.approved',
+            'type' => 'document.force_notify',
         ]);
     }
 
-    public function test_deadline_command_sends_due_soon_and_overdue_notifications_without_duplicates(): void
+    public function test_deadline_command_sends_due_tomorrow_notifications_without_duplicates(): void
     {
         $user = $this->createUser('assigned_worker', 'Assigned', 'Worker');
+
+        $dueTomorrowDoc = Document::create([
+            'id' => (string) Str::uuid(),
+            'tracking_number' => 'DOC-DUE-TOMORROW',
+            'created_by' => $user->id,
+            'origin_sender' => 'Office',
+            'sender_name' => 'Sender',
+            'document_type' => 'Report',
+            'priority_level' => 'Urgent',
+            'description' => 'Document due tomorrow',
+            'assigned_user' => $user->full_name,
+            'status' => 'outgoing',
+            'due_date' => now()->addDay()->toDateString(),
+        ]);
 
         $dueIn3DaysDoc = Document::create([
             'id' => (string) Str::uuid(),
@@ -112,33 +124,18 @@ class DocumentNotificationTest extends TestCase
             'due_date' => now()->addDays(3)->toDateString(),
         ]);
 
-        $overdueDoc = Document::create([
-            'id' => (string) Str::uuid(),
-            'tracking_number' => 'DOC-OVERDUE',
-            'created_by' => $user->id,
-            'origin_sender' => 'Office',
-            'sender_name' => 'Sender',
-            'document_type' => 'Report',
-            'priority_level' => 'Urgent',
-            'description' => 'Overdue document',
-            'assigned_user' => $user->full_name,
-            'status' => 'outgoing',
-            'due_date' => now()->subDays(2)->toDateString(),
-        ]);
-
         $this->artisan('documents:send-deadline-notifications')
             ->assertExitCode(0);
 
         $this->assertDatabaseHas('notifications', [
             'user_id' => $user->id,
-            'document_id' => $dueIn3DaysDoc->id,
-            'type' => 'document.due_soon',
+            'document_id' => $dueTomorrowDoc->id,
+            'type' => 'document.due_tomorrow',
         ]);
 
-        $this->assertDatabaseHas('notifications', [
+        $this->assertDatabaseMissing('notifications', [
             'user_id' => $user->id,
-            'document_id' => $overdueDoc->id,
-            'type' => 'document.overdue',
+            'document_id' => $dueIn3DaysDoc->id,
         ]);
 
         // Second run should be idempotent and not create duplicate records

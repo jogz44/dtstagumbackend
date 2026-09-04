@@ -128,29 +128,70 @@ class Document extends Model
         $officeName = $user->office?->name;
         $officeNames = self::getSimilarOfficeNames($officeName);
 
-        return $query->where('status', '!=', 'archived')
-            ->where(function ($q) use ($user, $officeNames) {
-                // Created by the user
-                $q->where('created_by', $user->id);
+        $roleName = strtolower($user->roles->first()?->name ?? '');
+        $isAdmin = in_array($roleName, ['admin', 'administrator', 'system administrator', 'system_administrator', 'super admin', 'super_admin']);
 
-                // Or creator is in the same office (outgoing or internal)
-                if ($user->office_id) {
-                    $q->orWhereHas('creator', function ($q2) use ($user) {
-                        $q2->where('office_id', $user->office_id);
+        return $query->where('status', '!=', 'archived')
+            ->where(function ($q) use ($user, $officeNames, $isAdmin) {
+                // Documents currently assigned to the user's office or assigned to the user directly
+                if (!empty($officeNames)) {
+                    $q->whereIn('office_assignment', $officeNames);
+                } else {
+                    $q->where('assigned_user', (string) $user->id)
+                      ->orWhere('assigned_user', $user->full_name)
+                      ->orWhere('assigned_user', $user->username);
+                }
+
+                // Or created by the user, provided it is still in the user's office or unassigned
+                $q->orWhere(function ($qCreated) use ($user, $officeNames) {
+                    $qCreated->where('created_by', $user->id);
+                    if (!empty($officeNames)) {
+                        $qCreated->where(function ($qOff) use ($officeNames) {
+                            $qOff->whereNull('office_assignment')
+                                 ->orWhere('office_assignment', '')
+                                 ->orWhereIn('office_assignment', $officeNames);
+                        });
+                    }
+                });
+
+                // If admin, also include documents created in the same office if still in the office or unassigned
+                if ($isAdmin && $user->office_id) {
+                    $q->orWhere(function ($qAdmin) use ($user, $officeNames) {
+                        $qAdmin->whereHas('creator', function ($q2) use ($user) {
+                            $q2->where('office_id', $user->office_id);
+                        });
+                        if (!empty($officeNames)) {
+                            $qAdmin->where(function ($qOff) use ($officeNames) {
+                                $qOff->whereNull('office_assignment')
+                                     ->orWhere('office_assignment', '')
+                                     ->orWhereIn('office_assignment', $officeNames);
+                            });
+                        }
                     });
                 }
-
-                // Or assigned to their office
-                if (!empty($officeNames)) {
-                    $q->orWhereIn('office_assignment', $officeNames)
-                      ->orWhereHas('histories', function ($q3) use ($officeNames) {
-                          $q3->whereIn('to_office', $officeNames);
-                      });
-                }
-
-                // Or user has handled this document (performed any action in its history)
-                $q->orWhereHas('histories', function ($qHist) use ($user) {
-                    $qHist->where('performed_by', $user->id);
+            })
+            ->where(function ($qReceivedCheck) use ($user, $officeNames) {
+                $qReceivedCheck->whereHas('creator', function ($qCreator) use ($user) {
+                    if ($user->office_id) {
+                        $qCreator->where('office_id', $user->office_id);
+                    } else {
+                        $qCreator->where('id', $user->id);
+                    }
+                })
+                ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                    $qAck->whereNotNull('acknowledged_at')
+                         ->where(function ($qUser) use ($user) {
+                             $qUser->where('user_id', $user->id)
+                                   ->orWhere('assigned_name', $user->full_name);
+                         });
+                })
+                ->orWhereHas('histories', function ($qHist) use ($user, $officeNames) {
+                    $qHist->whereIn('action', ['RECEIVED', 'ACKNOWLEDGED']);
+                    if (!empty($officeNames)) {
+                        $qHist->whereIn('to_office', $officeNames);
+                    } else {
+                        $qHist->where('performed_by', $user->id);
+                    }
                 });
             });
     }
@@ -247,7 +288,31 @@ class Document extends Model
                                });
             })
             ->where('status', '!=', 'completed')
-            ->where('status', '!=', 'archived');
+            ->where('status', '!=', 'archived')
+            ->where(function ($qReceivedCheck) use ($user, $officeNames) {
+                $qReceivedCheck->whereHas('creator', function ($qCreator) use ($user) {
+                    if ($user->office_id) {
+                        $qCreator->where('office_id', $user->office_id);
+                    } else {
+                        $qCreator->where('id', $user->id);
+                    }
+                })
+                ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                    $qAck->whereNotNull('acknowledged_at')
+                         ->where(function ($qUser) use ($user) {
+                             $qUser->where('user_id', $user->id)
+                                   ->orWhere('assigned_name', $user->full_name);
+                         });
+                })
+                ->orWhereHas('histories', function ($qHist) use ($user, $officeNames) {
+                    $qHist->whereIn('action', ['RECEIVED', 'ACKNOWLEDGED']);
+                    if (!empty($officeNames)) {
+                        $qHist->whereIn('to_office', $officeNames);
+                    } else {
+                        $qHist->where('performed_by', $user->id);
+                    }
+                });
+            });
     }
 
     public function scopeForOutgoing($query, User $user)
@@ -257,7 +322,7 @@ class Document extends Model
 
         return $query->where(function ($q) use ($user, $officeNames) {
             $q->where(function ($q2) use ($user) {
-                $q2->whereIn('status', ['released', 'outgoing', 'returned']);
+                $q2->whereIn('status', ['released', 'transferred', 'outgoing', 'returned']);
                 if ($user->office_id) {
                     $q2->whereHas('creator', function ($qC) use ($user) {
                         $qC->where('office_id', $user->office_id);
@@ -282,7 +347,7 @@ class Document extends Model
         });
     }
 
-    private static function getSimilarOfficeNames(?string $officeName): array
+    public static function getSimilarOfficeNames(?string $officeName): array
     {
         if (!$officeName) {
             return [];

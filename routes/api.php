@@ -64,6 +64,7 @@ Route::post('/login', function (Request $request) {
 // Public Guest Tracking & Lookup
 Route::get('/public/track/{trackingNumber}', [DocumentController::class, 'publicTrack']);
 Route::get('/documents/by-tracking/{trackingNumber}', [DocumentController::class, 'getByTracking']);
+Route::get('/documents/check-usage', [DocumentController::class, 'checkLibraryUsage']);
 
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
