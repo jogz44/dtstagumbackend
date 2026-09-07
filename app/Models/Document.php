@@ -47,7 +47,17 @@ class Document extends Model
         'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'issued_by', 'contact_number',
         'document_type', 'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
-        'assigned_user', 'is_read_only', 'status', 'completed_at', 'due_date', 'notes',
+        'assigned_user',
+        'assigned_user_id',
+        'received_at',
+        'due_at',
+        'due_date',
+        'completed_at',
+        'completed_by_user_id',
+        'is_read_only',
+        'status',
+        'notes',
+        
     ];
 
     protected function casts(): array
@@ -58,8 +68,12 @@ class Document extends Model
             'send_to_all' => 'boolean',
             'is_internal' => 'boolean',
             'is_read_only' => 'boolean',
+
+            'received_at' => 'datetime',
+            'due_at' => 'datetime',
             'completed_at' => 'datetime',
             'due_date' => 'date:Y-m-d',
+
         ];
     }
 
@@ -123,6 +137,28 @@ class Document extends Model
         return $this->hasMany(DocumentAcknowledgement::class);
     }
 
+
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    public function completedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'completed_by_user_id');
+    }
+
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(DocumentAssignment::class);
+    }
+
+    public function statusHistory(): HasMany
+    {
+        return $this->hasMany(DocumentStatusHistory::class);
+
+    }
+    
     public function scopeForMyDocuments($query, User $user)
     {
         $officeName = $user->office?->name;
@@ -366,5 +402,6 @@ class Document extends Model
             ->toArray();
             
         return array_unique(array_merge([$officeName], $names));
+
     }
 }

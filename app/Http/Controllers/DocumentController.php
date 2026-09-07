@@ -326,7 +326,9 @@ class DocumentController extends Controller
             // Resolve target user if possible
             $targetUser = null;
             $assignedName = $validated['assigned_user'] ?? null;
-            if ($assignedName && $assignedName !== '-Select user-' && $assignedName !== '-Select office first-') {
+            $invalidAssignedNames = ['-Select user-', '-Select office first-'];
+
+            if ($assignedName && ! in_array($assignedName, $invalidAssignedNames, true)) {
                 // First try resolving by ID (like in release)
                 $targetUser = User::find($assignedName);
                 if ($targetUser) {
@@ -342,6 +344,7 @@ class DocumentController extends Controller
                 'tracking_number' => 'DOC-'.Str::upper(Str::random(12)),
                 'created_by' => $user->id,
                 'assigned_user' => $assignedName,
+                'received_at' => now(),
                 'status' => $newStatus,
             ]);
 
