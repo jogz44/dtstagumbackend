@@ -120,6 +120,21 @@ class User extends Authenticatable
         return $this->belongsTo(Division::class);
     }
 
+    public function documentAssignments(): HasMany
+    {
+        return $this->hasMany(DocumentAssignment::class, 'assigned_user_id');
+    }
+
+    public function completedDocuments(): HasMany
+    {
+        return $this->hasMany(Document::class, 'completed_by_user_id');
+    }
+
+    public function statusHistoryChanges(): HasMany
+    {
+        return $this->hasMany(DocumentStatusHistory::class, 'changed_by_user_id');
+    }
+
     public function permissionOverrides(): HasMany
     {
         return $this->hasMany(UserPermissionOverride::class);

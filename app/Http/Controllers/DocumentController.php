@@ -71,6 +71,12 @@ class DocumentController extends Controller
                 }
             })
               ->where(function ($qUserScope) use ($user, $officeNames) {
+                  $roleName = strtolower($user->roles->first()?->name ?? '');
+                  $isElevatedUser = $user->username === 'admin'
+                      || $user->hasAnyRole(RoleNames::adminRoles())
+                      || $roleName === 'supervisor'
+                      || $user->hasRole('supervisor');
+
                   $qUserScope->where('created_by', $user->id)
                       ->orWhere('assigned_user', (string) $user->id)
                       ->orWhere('assigned_user', $user->full_name)
@@ -78,12 +84,16 @@ class DocumentController extends Controller
                       ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
                           $qAck->where('user_id', $user->id);
                       })
-                      ->orWhereHas('histories', function ($qH) use ($user, $officeNames) {
+                      ->orWhereHas('histories', function ($qH) use ($user) {
                           $qH->where('performed_by', $user->id)
                              ->orWhere('from_user_id', $user->id)
                              ->orWhere('to_user_id', $user->id);
+                      });
+
+                  if ($isElevatedUser) {
+                      $qUserScope->orWhereHas('histories', function ($qH) use ($officeNames) {
                           if (! empty($officeNames)) {
-                              $qH->orWhereIn('from_office', $officeNames)
+                              $qH->whereIn('from_office', $officeNames)
                                  ->orWhereIn('to_office', $officeNames);
                           }
                       })
@@ -92,9 +102,11 @@ class DocumentController extends Controller
                               $qC->where('office_id', $user->office_id);
                           }
                       });
-                  if (! empty($officeNames)) {
-                      $qUserScope->orWhereIn('office_assignment', $officeNames)
-                         ->orWhereIn('origin_sender', $officeNames);
+
+                      if (! empty($officeNames)) {
+                          $qUserScope->orWhereIn('office_assignment', $officeNames)
+                             ->orWhereIn('origin_sender', $officeNames);
+                      }
                   }
               })
               ->where(function ($qSearch) use ($searchTrimmed) {
@@ -320,7 +332,7 @@ class DocumentController extends Controller
             $validated['is_internal'] = true;
             $validated['office_assignment'] = $user->office?->name;
             $validated['division_assignment'] = $user->division?->name;
-            $validated['assigned_user'] = $user->full_name;
+            $validated['assigned_user'] = $request->input('assigned_user') ?: $user->full_name;
             $newStatus = 'pending';
 
             // Resolve target user if possible
@@ -339,7 +351,7 @@ class DocumentController extends Controller
 
             $document = Document::create([
                 ...$validated,
-                'tracking_number' => 'DOC-'.Str::upper(Str::random(12)),
+                'tracking_number' => $request->input('tracking_number') ?: ('DOC-'.Str::upper(Str::random(12))),
                 'created_by' => $user->id,
                 'assigned_user' => $assignedName,
                 'status' => $newStatus,
@@ -398,7 +410,7 @@ class DocumentController extends Controller
 
             // 1. Log in canonical document transaction history.
             $historyType = ($newStatus === 'released') ? DocumentHistory::RELEASED : DocumentHistory::REGISTERED;
-            $historyRemarks = $document->remarks ?: (($newStatus === 'released') ? 'Document physically released.' : 'Document received.');
+            $historyRemarks = $document->remarks ?: null;
 
             DocumentHistory::record($document, $historyType, $request->user(), [
                 'to_user_id' => $targetUser?->id,
@@ -412,7 +424,7 @@ class DocumentController extends Controller
             // If sent to all and internal:
             if ($document->send_to_all && $document->is_internal) {
                 DocumentHistory::record($document, 'shared', $request->user(), [
-                    'remarks' => 'Shared and sent to all employees in '.($user->office?->name ?? 'the office').'.',
+                    'remarks' => null,
                     'from_office' => $user->office?->name,
                     'to_office' => $user->office?->name,
                     'status_before' => $document->status,
@@ -426,7 +438,7 @@ class DocumentController extends Controller
                     'user_id' => $targetUser?->id,
                     'assigned_name' => $assignedName,
                     'from_office' => $document->origin_sender ?? $user->office?->name,
-                    'remarks' => ($newStatus === 'released') ? 'Pending acknowledgement (Released).' : 'Pending acknowledgement.',
+                    'remarks' => null,
                 ]);
 
                 if ($newStatus !== 'released') {
@@ -674,7 +686,7 @@ class DocumentController extends Controller
                 'user_id' => $targetUser->id,
                 'assigned_name' => $targetUser->full_name,
                 'from_office' => $fromOffice,
-                'remarks' => 'Pending acknowledgement (Transferred).',
+                'remarks' => null,
             ]);
 
             app(DocumentNotificationService::class)->notifyReceived(
@@ -685,7 +697,7 @@ class DocumentController extends Controller
             );
         }
 
-        $remarks = ! empty($validated['remarks']) ? $validated['remarks'] : 'Document transferred.';
+        $remarks = ! empty($validated['remarks']) ? $validated['remarks'] : null;
 
         DocumentHistory::record($document, DocumentHistory::TRANSFERRED, $currentUser, [
             'to_user_id' => $targetUser?->id,
@@ -744,7 +756,7 @@ class DocumentController extends Controller
                 'user_id' => $targetUser->id,
                 'assigned_name' => $targetUser->full_name,
                 'from_office' => $request->user()->office?->name,
-                'remarks' => 'Pending acknowledgement (Released).',
+                'remarks' => null,
             ]);
 
             app(DocumentNotificationService::class)->notifyReceived(
@@ -758,7 +770,7 @@ class DocumentController extends Controller
         DocumentHistory::record($document, 'released', $request->user(), [
             'to_user_id' => $targetUser?->id,
             'to_division_id' => $targetUser?->division_id,
-            'remarks' => $validated['remarks'] ?? 'Document physically released.',
+            'remarks' => $validated['remarks'] ?? null,
             'to_office' => $validated['to_office'] ?? null,
             'status_before' => $statusBefore,
             'status_after' => 'released',
@@ -788,7 +800,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, 'archived', $request->user(), [
-            'remarks' => $request->input('remarks') ?: 'Document archived.',
+            'remarks' => $request->input('remarks') ?: null,
             'status_before' => $statusBefore,
             'status_after' => 'archived',
         ]);
@@ -837,7 +849,7 @@ class DocumentController extends Controller
                 'user_id' => $lastUser->id,
                 'assigned_name' => $lastUser->full_name,
                 'from_office' => $request->user()->office?->name,
-                'remarks' => 'Pending acknowledgement (Returned).',
+                'remarks' => null,
             ]);
 
             app(DocumentNotificationService::class)->notifyReceived(
@@ -851,7 +863,7 @@ class DocumentController extends Controller
         DocumentHistory::record($document, DocumentHistory::RETURNED, $request->user(), [
             'to_user_id' => $lastUser?->id,
             'to_division_id' => $lastUser?->division_id,
-            'remarks' => $validated['remarks'] ?? 'Document returned to sender.',
+            'remarks' => $validated['remarks'] ?? null,
             'from_office' => $fromOffice,
             'to_office' => $toOffice,
             'status_before' => $statusBefore,
@@ -879,7 +891,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, DocumentHistory::COMPLETED, $request->user(), [
-            'remarks' => $validated['remarks'] ?? 'Document marked as complete.',
+            'remarks' => $validated['remarks'] ?? null,
             'status_before' => $statusBefore,
             'status_after' => 'completed',
         ]);
@@ -902,7 +914,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, 'shared', $request->user(), [
-            'remarks' => $validated['note'] ?? 'Document shared.',
+            'remarks' => $validated['note'] ?? null,
             'to_office' => $validated['office'],
             'metadata' => [
                 'to_division' => $validated['division'] ?? null,
@@ -950,7 +962,7 @@ class DocumentController extends Controller
         ]);
 
         DocumentHistory::record($document, 'RETRIEVED', $request->user(), [
-            'remarks' => isset($validated['remarks']) && trim($validated['remarks']) !== '' ? trim($validated['remarks']) : 'Document retrieved from completed.',
+            'remarks' => isset($validated['remarks']) && trim($validated['remarks']) !== '' ? trim($validated['remarks']) : null,
             'status_before' => $statusBefore,
             'status_after' => 'registered',
         ]);
@@ -1069,7 +1081,7 @@ class DocumentController extends Controller
                 'user_id' => $targetUser->id,
                 'assigned_name' => $assignedName,
                 'from_office' => $user->office?->name,
-                'remarks' => 'Pending acknowledgement (Reassigned).',
+                'remarks' => null,
             ]);
 
             app(DocumentNotificationService::class)->notifyReceived(
@@ -1083,7 +1095,7 @@ class DocumentController extends Controller
         DocumentHistory::record($document, 'REASSIGNED', $user, [
             'to_user_id' => $targetUser?->id,
             'to_division_id' => $targetUser?->division_id,
-            'remarks' => $validated['remarks'] ?? "Document reassigned to {$assignedName}.",
+            'remarks' => $validated['remarks'] ?? null,
             'from_office' => $document->office_assignment,
             'to_office' => $document->office_assignment,
             'status_before' => $statusBefore,
@@ -1540,7 +1552,7 @@ class DocumentController extends Controller
             }
 
             $remarks = $h->remarks;
-            if ($action === 'RECEIVED' || in_array(trim((string) $remarks), ['Document physically received via QR scan.', 'Document received.', 'Document registered.', ''])) {
+            if ($this->isAutoRemark($remarks)) {
                 $remarks = null;
             }
 
@@ -1571,5 +1583,41 @@ class DocumentController extends Controller
             ],
             'timeline' => $timeline,
         ]);
+    }
+
+    private function isAutoRemark(?string $remarks): bool
+    {
+        if ($remarks === null) {
+            return true;
+        }
+        $trimmed = trim($remarks);
+        if ($trimmed === '') {
+            return true;
+        }
+        $autoRemarks = [
+            'document marked as complete.',
+            'document received.',
+            'document physically received via qr scan.',
+            'document physically released.',
+            'document registered.',
+            'pending acknowledgement.',
+            'pending acknowledgement (released).',
+            'pending acknowledgement (transferred).',
+            'pending acknowledgement (returned).',
+            'pending acknowledgement (reassigned).',
+            'document transferred.',
+            'document returned to sender.',
+            'document archived.',
+            'document retrieved from completed.',
+            'document shared.',
+            'acknowledged/opened by recipient.',
+        ];
+        if (in_array(strtolower($trimmed), $autoRemarks)) {
+            return true;
+        }
+        if (str_starts_with(strtolower($trimmed), 'document reassigned to')) {
+            return true;
+        }
+        return false;
     }
 }

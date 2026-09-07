@@ -47,11 +47,10 @@ class DocumentTransactionHistoryTest extends TestCase
             'document_id' => $document['id'],
             'tracking_number' => $document['tracking_number'],
             'performed_by' => $user->id,
-            'action' => 'RELEASED',
+            'action' => 'REGISTERED',
             'status_before' => null,
-            'status_after' => 'released',
+            'status_after' => 'pending',
             'from_office' => 'HRMO',
-            'to_office' => 'BAC',
         ]);
     }
 
@@ -155,7 +154,7 @@ class DocumentTransactionHistoryTest extends TestCase
             'description' => 'Document assignment test.',
             'office_assignment' => 'BAC',
             'division_assignment' => 'BAC Secretariat',
-            'assigned_user' => 'Ariane Assignee',
+            'assigned_user' => $assignee->id,
         ]);
 
         $response->assertCreated();
@@ -173,16 +172,16 @@ class DocumentTransactionHistoryTest extends TestCase
             'tracking_number' => $document['tracking_number'],
             'performed_by' => $actor->id,
             'to_user_id' => $assignee->id,
-            'action' => 'RELEASED',
+            'action' => 'REGISTERED',
             'status_before' => null,
-            'status_after' => 'released',
+            'status_after' => 'pending',
         ]);
 
         $this->assertSame(
             1,
             DocumentHistory::query()
                 ->where('document_id', $document['id'])
-                ->where('action', 'RELEASED')
+                ->where('action', 'REGISTERED')
                 ->count()
         );
     }

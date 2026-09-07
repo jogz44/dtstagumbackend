@@ -14,9 +14,10 @@ class StoreDocumentRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'tracking_number'   => ['nullable', 'string', 'max:100'],
             'origin_sender'     => ['required', 'string', 'max:255'],
-            'sender_name'       => ['required', 'string', 'max:255'],
-            'issued_by'         => ['nullable', 'string', 'max:255'],
+            'sender_name'       => ['nullable', 'string', 'max:255'],
+            'issued_by'         => ['required', 'string', 'max:255'],
             'contact_number'    => ['nullable', 'string', 'max:50'],
             'document_type'     => ['required', 'string', 'max:100'],
             'priority_level'    => ['required', 'string', 'max:100'],

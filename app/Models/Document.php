@@ -44,11 +44,16 @@ class Document extends Model
     protected $keyType = 'string';
 
     protected $fillable = [
-        'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'issued_by', 'contact_number',
+        'tracking_number', 'created_by', 'origin_sender', 'sender_name', 'contact_person', 'issued_by', 'contact_number',
         'document_type', 'priority_level', 'description', 'remarks', 'is_confidential', 'self_assign',
         'send_to_all', 'is_internal', 'office_assignment', 'division_assignment',
-        'assigned_user', 'is_read_only', 'status', 'completed_at', 'due_date', 'notes',
+        'assigned_user', 'assigned_user_id', 'is_read_only', 'status', 'received_at', 'due_at', 'completed_at', 'completed_by_user_id', 'due_date', 'notes',
     ];
+
+    public function getContactPersonAttribute()
+    {
+        return $this->attributes['contact_person'] ?? $this->attributes['sender_name'] ?? null;
+    }
 
     protected function casts(): array
     {
@@ -58,6 +63,8 @@ class Document extends Model
             'send_to_all' => 'boolean',
             'is_internal' => 'boolean',
             'is_read_only' => 'boolean',
+            'received_at' => 'datetime',
+            'due_at' => 'datetime',
             'completed_at' => 'datetime',
             'due_date' => 'date:Y-m-d',
         ];
@@ -123,76 +130,92 @@ class Document extends Model
         return $this->hasMany(DocumentAcknowledgement::class);
     }
 
+    public function assignedUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'assigned_user_id');
+    }
+
+    public function completedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'completed_by_user_id');
+    }
+
+    public function assignments(): HasMany
+    {
+        return $this->hasMany(DocumentAssignment::class);
+    }
+
+    public function statusHistory(): HasMany
+    {
+        return $this->hasMany(DocumentStatusHistory::class);
+    }
+
     public function scopeForMyDocuments($query, User $user)
     {
         $officeName = $user->office?->name;
         $officeNames = self::getSimilarOfficeNames($officeName);
 
         $roleName = strtolower($user->roles->first()?->name ?? '');
-        $isAdmin = in_array($roleName, ['admin', 'administrator', 'system administrator', 'system_administrator', 'super admin', 'super_admin']);
+        $isElevatedUser = in_array($roleName, ['admin', 'administrator', 'system administrator', 'system_administrator', 'super admin', 'super_admin', 'supervisor']);
 
         return $query->where('status', '!=', 'archived')
-            ->where(function ($q) use ($user, $officeNames, $isAdmin) {
-                // Documents currently assigned to the user's office or assigned to the user directly
-                if (!empty($officeNames)) {
-                    $q->whereIn('office_assignment', $officeNames);
-                } else {
-                    $q->where('assigned_user', (string) $user->id)
-                      ->orWhere('assigned_user', $user->full_name)
-                      ->orWhere('assigned_user', $user->username);
-                }
-
-                // Or created by the user, provided it is still in the user's office or unassigned
-                $q->orWhere(function ($qCreated) use ($user, $officeNames) {
-                    $qCreated->where('created_by', $user->id);
+            ->where(function ($q) use ($user, $officeNames, $isElevatedUser) {
+                if ($isElevatedUser) {
+                    // Elevated users: Documents currently assigned to user's office or assigned to user directly
                     if (!empty($officeNames)) {
-                        $qCreated->where(function ($qOff) use ($officeNames) {
-                            $qOff->whereNull('office_assignment')
-                                 ->orWhere('office_assignment', '')
-                                 ->orWhereIn('office_assignment', $officeNames);
-                        });
+                        $q->whereIn('office_assignment', $officeNames);
+                    } else {
+                        $q->where('assigned_user', (string) $user->id)
+                          ->orWhere('assigned_user', $user->full_name)
+                          ->orWhere('assigned_user', $user->username);
                     }
-                });
 
-                // If admin, also include documents created in the same office if still in the office or unassigned
-                if ($isAdmin && $user->office_id) {
-                    $q->orWhere(function ($qAdmin) use ($user, $officeNames) {
-                        $qAdmin->whereHas('creator', function ($q2) use ($user) {
-                            $q2->where('office_id', $user->office_id);
-                        });
+                    // Or created by the user, provided it is still in the user's office or unassigned
+                    $q->orWhere(function ($qCreated) use ($user, $officeNames) {
+                        $qCreated->where('created_by', $user->id);
                         if (!empty($officeNames)) {
-                            $qAdmin->where(function ($qOff) use ($officeNames) {
+                            $qCreated->where(function ($qOff) use ($officeNames) {
                                 $qOff->whereNull('office_assignment')
                                      ->orWhere('office_assignment', '')
                                      ->orWhereIn('office_assignment', $officeNames);
                             });
                         }
                     });
-                }
-            })
-            ->where(function ($qReceivedCheck) use ($user, $officeNames) {
-                $qReceivedCheck->whereHas('creator', function ($qCreator) use ($user) {
+
+                    // Include documents created in the same office if still in the office or unassigned
                     if ($user->office_id) {
-                        $qCreator->where('office_id', $user->office_id);
-                    } else {
-                        $qCreator->where('id', $user->id);
+                        $q->orWhere(function ($qAdmin) use ($user, $officeNames) {
+                            $qAdmin->whereHas('creator', function ($q2) use ($user) {
+                                $q2->where('office_id', $user->office_id);
+                            });
+                            if (!empty($officeNames)) {
+                                $qAdmin->where(function ($qOff) use ($officeNames) {
+                                    $qOff->whereNull('office_assignment')
+                                         ->orWhere('office_assignment', '')
+                                         ->orWhereIn('office_assignment', $officeNames);
+                                });
+                            }
+                        });
                     }
-                })
-                ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
-                    $qAck->whereNotNull('acknowledged_at')
-                         ->where(function ($qUser) use ($user) {
-                             $qUser->where('user_id', $user->id)
-                                   ->orWhere('assigned_name', $user->full_name);
-                         });
-                })
-                ->orWhereHas('histories', function ($qHist) use ($user, $officeNames) {
-                    $qHist->whereIn('action', ['RECEIVED', 'ACKNOWLEDGED']);
-                    if (!empty($officeNames)) {
-                        $qHist->whereIn('to_office', $officeNames);
-                    } else {
-                        $qHist->where('performed_by', $user->id);
-                    }
-                });
+                } else {
+                    // Regular receiver: ONLY see added (created_by), received (assigned/acknowledged), or transferred
+                    $q->where('created_by', $user->id)
+                      ->orWhere('assigned_user', (string) $user->id)
+                      ->orWhere('assigned_user', $user->full_name)
+                      ->orWhere('assigned_user', $user->username)
+                      ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                          $qAck->whereNotNull('acknowledged_at')
+                               ->where(function ($qUser) use ($user) {
+                                   $qUser->where('user_id', $user->id)
+                                         ->orWhere('assigned_name', $user->full_name);
+                               });
+                      })
+                      ->orWhereHas('histories', function ($qHist) use ($user) {
+                          $qHist->where('performed_by', $user->id)
+                                ->orWhere('to_user_id', $user->id)
+                                ->orWhere('from_user_id', $user->id);
+                      });
+                }
             });
     }
 
@@ -233,50 +256,39 @@ class Document extends Model
         $roleName = strtolower($user->roles->first()?->name ?? '');
         $isAdmin = in_array($roleName, ['admin', 'administrator', 'system administrator', 'system_administrator', 'super admin', 'super_admin']);
         $isSupervisor = $roleName === 'supervisor';
+        $isElevatedUser = $isAdmin || $isSupervisor;
 
-        if (empty($officeNames)) {
+        if ($isElevatedUser && empty($officeNames)) {
             return $query->whereRaw('1 = 0');
         }
 
-        return $query->whereIn('office_assignment', $officeNames)
-            ->where(function ($q) use ($divisionName, $fullName, $user, $isAdmin, $isSupervisor) {
-                // Non-confidential documents in their office
-                $q->where(function ($q1) use ($divisionName, $isAdmin, $isSupervisor, $fullName, $user) {
-                    $q1->where('is_confidential', false)
-                       ->where(function ($qSub) use ($isAdmin, $isSupervisor, $fullName, $user, $divisionName) {
-                           if ($isAdmin || $isSupervisor) {
-                               // Supervisors and admins see whatever is incoming to their office
-                           } else {
-                               // Regular users see if they are assigned, or if the division matches, or unassigned in their office
-                               $qSub->where('assigned_user', $fullName)
-                                    ->orWhere('assigned_user', $user->id)
-                                    ->orWhere('assigned_user', $user->username)
-                                    ->orWhere(function ($qDiv) use ($divisionName) {
-                                        if ($divisionName) {
-                                            $qDiv->where('division_assignment', $divisionName);
-                                        }
-                                    })
-                                    ->orWhereNull('assigned_user')
-                                    ->orWhere('assigned_user', '');
-                           }
-                       });
-                })
-                // Confidential documents in their office
-                ->orWhere(function ($q2) use ($fullName, $user, $isAdmin) {
-                    $q2->where('is_confidential', true)
-                       ->where(function ($qSub) use ($fullName, $user, $isAdmin) {
-                           if ($isAdmin) {
-                               // Admin in that office can see it
-                           } else {
-                               $qSub->where('assigned_user', $fullName)
-                                    ->orWhere('assigned_user', $user->id)
-                                    ->orWhere('assigned_user', $user->username);
-                           }
-                       });
-                });
+        return $query->where('status', '!=', 'completed')
+            ->where('status', '!=', 'archived')
+            ->where(function ($q) use ($divisionName, $fullName, $user, $isElevatedUser, $officeNames) {
+                if ($isElevatedUser) {
+                    if (!empty($officeNames)) {
+                        $q->whereIn('office_assignment', $officeNames);
+                    }
+                } else {
+                    // Receiver user: assigned to user or acknowledged or received in history
+                    $q->where(function ($qSub) use ($fullName, $user) {
+                        $qSub->where('assigned_user', $fullName)
+                             ->orWhere('assigned_user', (string) $user->id)
+                             ->orWhere('assigned_user', $user->username)
+                             ->orWhereHas('acknowledgements', function ($qAck) use ($user, $fullName) {
+                                 $qAck->whereNotNull('acknowledged_at')
+                                      ->where(function ($qU) use ($user, $fullName) {
+                                          $qU->where('user_id', $user->id)
+                                             ->orWhere('assigned_name', $fullName);
+                                      });
+                             })
+                             ->orWhereHas('histories', function ($qHist) use ($user) {
+                                 $qHist->where('to_user_id', $user->id);
+                             });
+                    });
+                }
             })
             ->where(function ($qInternalCheck) use ($user) {
-                // Must not be internal unless it is send_to_all, or it's a self-assigned doc
                 $qInternalCheck->where('is_internal', false)
                                ->orWhere(function ($qIntSub) {
                                    $qIntSub->where('is_internal', true)
@@ -286,32 +298,6 @@ class Document extends Model
                                    $qSelfInternal->where('self_assign', true)
                                                  ->where('created_by', $user->id);
                                });
-            })
-            ->where('status', '!=', 'completed')
-            ->where('status', '!=', 'archived')
-            ->where(function ($qReceivedCheck) use ($user, $officeNames) {
-                $qReceivedCheck->whereHas('creator', function ($qCreator) use ($user) {
-                    if ($user->office_id) {
-                        $qCreator->where('office_id', $user->office_id);
-                    } else {
-                        $qCreator->where('id', $user->id);
-                    }
-                })
-                ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
-                    $qAck->whereNotNull('acknowledged_at')
-                         ->where(function ($qUser) use ($user) {
-                             $qUser->where('user_id', $user->id)
-                                   ->orWhere('assigned_name', $user->full_name);
-                         });
-                })
-                ->orWhereHas('histories', function ($qHist) use ($user, $officeNames) {
-                    $qHist->whereIn('action', ['RECEIVED', 'ACKNOWLEDGED']);
-                    if (!empty($officeNames)) {
-                        $qHist->whereIn('to_office', $officeNames);
-                    } else {
-                        $qHist->where('performed_by', $user->id);
-                    }
-                });
             });
     }
 
@@ -320,30 +306,39 @@ class Document extends Model
         $officeName = $user->office?->name;
         $officeNames = self::getSimilarOfficeNames($officeName);
 
-        return $query->where(function ($q) use ($user, $officeNames) {
-            $q->where(function ($q2) use ($user) {
-                $q2->whereIn('status', ['released', 'transferred', 'outgoing', 'returned']);
-                if ($user->office_id) {
-                    $q2->whereHas('creator', function ($qC) use ($user) {
-                        $qC->where('office_id', $user->office_id);
-                    });
-                } else {
-                    $q2->where('created_by', $user->id);
-                }
-            });
+        $roleName = strtolower($user->roles->first()?->name ?? '');
+        $isElevatedUser = in_array($roleName, ['admin', 'administrator', 'system administrator', 'system_administrator', 'super admin', 'super_admin', 'supervisor']);
 
-            if (!empty($officeNames)) {
-                $q->orWhereHas('histories', function ($q3) use ($officeNames) {
-                    $q3->whereIn('action', ['ASSIGNED', 'TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
-                       ->whereIn('from_office', $officeNames);
+        return $query->where(function ($q) use ($user, $officeNames, $isElevatedUser) {
+            if ($isElevatedUser) {
+                $q->where(function ($q2) use ($user) {
+                    $q2->whereIn('status', ['released', 'transferred', 'outgoing', 'returned']);
+                    if ($user->office_id) {
+                        $q2->whereHas('creator', function ($qC) use ($user) {
+                            $qC->where('office_id', $user->office_id);
+                        });
+                    } else {
+                        $q2->where('created_by', $user->id);
+                    }
                 });
-            }
 
-            // Also include if the user specifically performed the outgoing action
-            $q->orWhereHas('histories', function ($q4) use ($user) {
-                $q4->whereIn('action', ['TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
-                   ->where('performed_by', $user->id);
-            });
+                if (!empty($officeNames)) {
+                    $q->orWhereHas('histories', function ($q3) use ($officeNames) {
+                        $q3->whereIn('action', ['ASSIGNED', 'TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
+                           ->whereIn('from_office', $officeNames);
+                    });
+                }
+            } else {
+                // Receiver user: created by user or transferred/released by user
+                $q->where('created_by', $user->id)
+                  ->orWhereHas('histories', function ($q4) use ($user) {
+                      $q4->whereIn('action', ['TRANSFERRED', 'FORWARDED', 'RELEASED', 'RETURNED'])
+                         ->where(function ($qUser) use ($user) {
+                             $qUser->where('performed_by', $user->id)
+                                   ->orWhere('from_user_id', $user->id);
+                         });
+                  });
+            }
         });
     }
 

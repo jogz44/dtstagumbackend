@@ -15,6 +15,8 @@ use App\Http\Controllers\ScanSessionController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
+use App\Http\Controllers\DocumentWorkflowController;
+use App\Http\Controllers\PerformanceRankingController;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
@@ -125,6 +127,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
         Route::get('/reports', [ReportController::class, 'index']);
+        Route::get('/reports/dashboard', [ReportController::class, 'index']);
+        Route::get('/reports/offices', [ReportController::class, 'offices']);
+        Route::get('/reports/divisions', [ReportController::class, 'divisions']);
+
+        // Document workflow routes
+        Route::post('/documents/{document}/assign', [DocumentWorkflowController::class, 'assign'])->middleware('can:documents.transfer');
+        Route::post('/documents/{document}/status', [DocumentWorkflowController::class, 'transition'])->middleware('can:documents.edit');
+
+        // Performance ranking routes
+        Route::get('/performance/ranking', [PerformanceRankingController::class, 'ranking'])->middleware('can:performance_ranking.view');
+        Route::get('/performance/summary', [PerformanceRankingController::class, 'summary'])->middleware('can:performance_ranking.view');
+        Route::get('/performance/users/{user}', [PerformanceRankingController::class, 'profile'])->middleware('can:performance_ranking.view');
+        Route::get('/performance/users/{user}/completed-documents', [PerformanceRankingController::class, 'completedDocuments'])->middleware('can:performance_ranking.view');
         Route::get('/documents', [DocumentController::class, 'index']);
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
         Route::get('/documents/{document}', [DocumentController::class, 'show']);

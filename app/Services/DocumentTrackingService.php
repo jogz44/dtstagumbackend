@@ -241,16 +241,30 @@ class DocumentTrackingService
             return $query;
         }
 
+        $viewer->loadMissing('roles');
+        $roleName = strtolower($viewer->roles->first()?->name ?? '');
+        $isSupervisor = $roleName === 'supervisor';
+
+        if ($isSupervisor) {
+            $officeName = $viewer->office?->name;
+            $officeNames = Document::getSimilarOfficeNames($officeName);
+
+            return $query->where(function ($q) use ($viewer, $officeNames) {
+                if ($viewer->office_id) {
+                    $q->whereHas('creator', fn ($q2) => $q2->where('office_id', $viewer->office_id));
+                }
+                if (!empty($officeNames)) {
+                    $q->orWhereIn('office_assignment', $officeNames)
+                      ->orWhere('origin_sender', $viewer->office?->name);
+                }
+                $q->orWhere('created_by', $viewer->id)
+                  ->orWhere('assigned_user', $viewer->full_name)
+                  ->orWhere('assigned_user', (string) $viewer->id);
+            });
+        }
+
         return $query->where(function ($q) use ($viewer) {
-            $q->forMyDocuments($viewer)
-                ->orWhere(fn ($qReg) => $qReg->forRegistry($viewer))
-                ->orWhere(fn ($qInc) => $qInc->forIncoming($viewer))
-                ->orWhere(fn ($qOut) => $qOut->forOutgoing($viewer))
-                ->orWhere('created_by', $viewer->id)
-                ->orWhere('assigned_user', $viewer->full_name)
-                ->orWhere('assigned_user', $viewer->id)
-                ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $viewer->id)->orWhere('assigned_name', $viewer->full_name))
-                ->orWhereHas('histories', fn ($qHist) => $qHist->involvingUser($viewer));
+            $q->forMyDocuments($viewer);
         });
     }
 
@@ -268,49 +282,30 @@ class DocumentTrackingService
 
     public function applyIncomingCondition(Builder $query, User $viewer): void
     {
-        if ($this->checkIsAdmin($viewer)) {
-            $query->whereIn(DB::raw('LOWER(status)'), ['registered', 'incoming', 'pending', 'received', 'in_process', 'in progress', 'in_transit']);
+        $viewer->loadMissing('roles');
+        $roleName = strtolower($viewer->roles->first()?->name ?? '');
+        $isElevatedUser = $this->checkIsAdmin($viewer) || $roleName === 'supervisor';
 
+        if ($isElevatedUser) {
+            $query->whereIn(DB::raw('LOWER(status)'), ['registered', 'incoming', 'pending', 'received', 'in_process', 'in progress', 'in_transit']);
             return;
         }
 
-        $officeName = $viewer->office?->name;
-
-        $query->where(function ($q) use ($viewer, $officeName) {
-            $q->forIncoming($viewer)
-                ->orWhere('assigned_user', $viewer->full_name)
-                ->orWhere('assigned_user', $viewer->id)
-                ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $viewer->id)->orWhere('assigned_name', $viewer->full_name))
-                ->orWhereHas('histories', function ($qHist) use ($viewer, $officeName) {
-                    $qHist->where('to_user_id', $viewer->id);
-                    if ($officeName) {
-                        $qHist->orWhere('to_office', $officeName);
-                    }
-                });
-        });
+        $query->forIncoming($viewer);
     }
 
     public function applyOutgoingCondition(Builder $query, User $viewer): void
     {
-        if ($this->checkIsAdmin($viewer)) {
-            $query->whereIn(DB::raw('LOWER(status)'), ['outgoing', 'released', 'transferred', 'forwarded']);
+        $viewer->loadMissing('roles');
+        $roleName = strtolower($viewer->roles->first()?->name ?? '');
+        $isElevatedUser = $this->checkIsAdmin($viewer) || $roleName === 'supervisor';
 
+        if ($isElevatedUser) {
+            $query->whereIn(DB::raw('LOWER(status)'), ['outgoing', 'released', 'transferred', 'forwarded']);
             return;
         }
 
-        $officeName = $viewer->office?->name;
-
-        $query->where(function ($q) use ($viewer, $officeName) {
-            $q->forOutgoing($viewer)
-                ->orWhere('created_by', $viewer->id)
-                ->orWhereHas('histories', function ($qHist) use ($viewer, $officeName) {
-                    $qHist->where('performed_by', $viewer->id)
-                        ->orWhere('from_user_id', $viewer->id);
-                    if ($officeName) {
-                        $qHist->orWhere('from_office', $officeName);
-                    }
-                });
-        });
+        $query->forOutgoing($viewer);
     }
 
     public function resolveDirectionForUser(Document $document, User $viewer): string
@@ -538,9 +533,42 @@ class DocumentTrackingService
                 'to_office' => $event->to_office,
                 'status_before' => $event->status_before,
                 'status_after' => $event->status_after,
-                'remarks' => $canShowSensitiveFields ? $event->remarks : null,
+                'remarks' => $canShowSensitiveFields ? $this->filterAutoRemarks($event->remarks) : null,
             ];
         })->values()->toArray();
+    }
+
+    private function filterAutoRemarks(?string $remarks): ?string
+    {
+        if ($remarks === null) {
+            return null;
+        }
+        $trimmed = trim($remarks);
+        if ($trimmed === '') {
+            return null;
+        }
+        $autoRemarks = [
+            'document marked as complete.',
+            'document received.',
+            'document physically received via qr scan.',
+            'document physically released.',
+            'document registered.',
+            'pending acknowledgement.',
+            'pending acknowledgement (released).',
+            'pending acknowledgement (transferred).',
+            'pending acknowledgement (returned).',
+            'pending acknowledgement (reassigned).',
+            'document transferred.',
+            'document returned to sender.',
+            'document archived.',
+            'document retrieved from completed.',
+            'document shared.',
+            'acknowledged/opened by recipient.',
+        ];
+        if (in_array(strtolower($trimmed), $autoRemarks) || str_starts_with(strtolower($trimmed), 'document reassigned to')) {
+            return null;
+        }
+        return $remarks;
     }
 
     private function getHumanLabelForAction(string $action): string

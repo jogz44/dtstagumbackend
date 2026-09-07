@@ -77,6 +77,7 @@ class InitialPasswordFlowTest extends TestCase
             'pmis_employee_id' => $employee->id,
             'username' => 'msantos',
             'office_id' => $this->office->id,
+            'role' => 'admin',
             'is_active' => true,
         ]);
 
@@ -106,6 +107,7 @@ class InitialPasswordFlowTest extends TestCase
             'pmis_employee_id' => $employee->id,
             'username' => 'creyes',
             'office_id' => $this->office->id,
+            'role' => 'admin',
             'birthdate' => '2000-01-01', // fake input
             'is_active' => true,
         ]);
