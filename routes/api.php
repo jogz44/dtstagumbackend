@@ -17,6 +17,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
 use App\Http\Controllers\DocumentWorkflowController;
 use App\Http\Controllers\PerformanceRankingController;
+use App\Http\Controllers\DocumentEmailController;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
@@ -145,6 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
         Route::post('/documents', [DocumentController::class, 'store']);
+        Route::post('/documents/send-tracking-email', [DocumentEmailController::class, 'sendTrackingEmail']);
         Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
         Route::get('/documents/{document}/tracking', [DocumentTrackingController::class, 'show']);
