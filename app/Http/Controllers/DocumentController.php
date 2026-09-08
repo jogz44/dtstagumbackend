@@ -1534,7 +1534,7 @@ class DocumentController extends Controller
 
                 $title = match ($action) {
                     'REGISTERED' => 'Document received',
-                    'TRANSFERRED' => "Document transmitted",
+                    'TRANSFERRED' => "Document transferred",
                     'RECEIVED' => 'Document received',
                     'EDITED' => 'Document edited',
                     'COMPLETED' => 'Document completed',

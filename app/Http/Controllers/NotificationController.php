@@ -11,7 +11,7 @@ class NotificationController extends Controller
     /**
      * Allowed notification types per policy:
      * 1. Force notification
-     * 2. Document transmitted / received
+     * 2. Document transferred / received
      * 3. Document due tomorrow
      */
     protected function scopeAllowedNotifications($query)
