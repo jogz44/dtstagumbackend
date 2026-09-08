@@ -127,14 +127,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/dashboard/analytics', [DashboardController::class, 'analytics']);
         Route::get('/pmis-employees', [PmisEmployeeController::class, 'index']);
         Route::get('/activity-logs', [ActivityLogController::class, 'index']);
-        Route::get('/reports', [ReportController::class, 'index']);
-        Route::get('/reports/dashboard', [ReportController::class, 'index']);
-        Route::get('/reports/offices', [ReportController::class, 'offices']);
-        Route::get('/reports/divisions', [ReportController::class, 'divisions']);
+        Route::get('/reports/export', [ReportController::class, 'index'])->middleware(['can:reports.view', 'can:reports.export']);
+        Route::get('/reports', [ReportController::class, 'index'])->middleware('can:reports.view');
+        Route::get('/reports/dashboard', [ReportController::class, 'index'])->middleware('can:reports.view');
+        Route::get('/reports/offices', [ReportController::class, 'offices'])->middleware('can:reports.view');
+        Route::get('/reports/divisions', [ReportController::class, 'divisions'])->middleware('can:reports.view');
 
         // Document workflow routes
-        Route::post('/documents/{document}/assign', [DocumentWorkflowController::class, 'assign'])->middleware('can:documents.transfer');
-        Route::post('/documents/{document}/status', [DocumentWorkflowController::class, 'transition'])->middleware('can:documents.edit');
+        Route::post('/documents/{document}/assign', [DocumentWorkflowController::class, 'assign'])->middleware('can:can_transfer_documents');
+        Route::post('/documents/{document}/status', [DocumentWorkflowController::class, 'transition'])->middleware('can:can_edit_document');
 
         // Performance ranking routes
         Route::get('/performance/ranking', [PerformanceRankingController::class, 'ranking'])->middleware('can:performance_ranking.view');
@@ -145,7 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
         Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
-        Route::post('/documents', [DocumentController::class, 'store']);
+        Route::post('/documents', [DocumentController::class, 'store'])->middleware('can:can_register_documents');
         Route::post('/documents/send-tracking-email', [DocumentEmailController::class, 'sendTrackingEmail']);
         Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
@@ -153,20 +154,20 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/document-tracking', [DocumentTrackingController::class, 'index']);
         Route::get('/document-tracking/statistics', [DocumentTrackingController::class, 'statistics']);
         Route::get('/document-tracking/search', [DocumentTrackingController::class, 'search']);
-        Route::put('/documents/{document}', [DocumentController::class, 'update']);
-        Route::post('/documents/{document}/transfer', [DocumentController::class, 'transfer']);
-        Route::post('/documents/{document}/receive', [DocumentController::class, 'receive']);
-        Route::post('/documents/receive-by-code', [DocumentController::class, 'receiveByCode']);
-        Route::post('/documents/{document}/release', [DocumentController::class, 'release']);
-        Route::post('/documents/{document}/archive', [DocumentController::class, 'archive']);
-        Route::post('/documents/{document}/share', [DocumentController::class, 'share']);
-        Route::post('/documents/{document}/complete', [DocumentController::class, 'complete']);
-        Route::post('/documents/{document}/return', [DocumentController::class, 'returnDocument']);
-        Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve']);
+        Route::put('/documents/{document}', [DocumentController::class, 'update'])->middleware('can:can_edit_document');
+        Route::post('/documents/{document}/transfer', [DocumentController::class, 'transfer'])->middleware('can:can_transfer_documents');
+        Route::post('/documents/{document}/receive', [DocumentController::class, 'receive'])->middleware('can:can_receive_documents');
+        Route::post('/documents/receive-by-code', [DocumentController::class, 'receiveByCode'])->middleware('can:can_receive_documents');
+        Route::post('/documents/{document}/release', [DocumentController::class, 'release'])->middleware('can:can_release_document');
+        Route::post('/documents/{document}/archive', [DocumentController::class, 'archive'])->middleware('can:can_archive_document');
+        Route::post('/documents/{document}/share', [DocumentController::class, 'share'])->middleware('can:can_share_document');
+        Route::post('/documents/{document}/complete', [DocumentController::class, 'complete'])->middleware('can:can_complete_document');
+        Route::post('/documents/{document}/return', [DocumentController::class, 'returnDocument'])->middleware('can:can_return_document');
+        Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve'])->middleware('can:can_archive_document');
         Route::get('/document-types', [DocumentController::class, 'getDocumentTypes']);
-        Route::post('/documents/{document}/attachments', [DocumentController::class, 'addAttachment']);
-        Route::post('/documents/{document}/sync-scan', [DocumentController::class, 'syncScanSession']);
-        Route::delete('/attachments/{attachment}', [DocumentController::class, 'deleteAttachment']);
+        Route::post('/documents/{document}/attachments', [DocumentController::class, 'addAttachment'])->middleware('can:can_edit_document');
+        Route::post('/documents/{document}/sync-scan', [DocumentController::class, 'syncScanSession'])->middleware('can:can_edit_document');
+        Route::delete('/attachments/{attachment}', [DocumentController::class, 'deleteAttachment'])->middleware('can:can_edit_document');
         Route::post('/documents/{document}/reassign', [DocumentController::class, 'reassign']);
         Route::post('/documents/{document}/force-notify', [DocumentController::class, 'forceNotify']);
         Route::get('/office-users', [DocumentController::class, 'officeUsers']);

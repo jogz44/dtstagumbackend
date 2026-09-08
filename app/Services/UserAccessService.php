@@ -18,6 +18,8 @@ class UserAccessService
 
     public function update(User $actor, User $targetUser, array $attributes, Request $request): User
     {
+        abort_unless($actor->is_active && $actor->hasAnyRole(RoleNames::adminRoles()), 403);
+
         return DB::transaction(function () use ($actor, $targetUser, $attributes, $request) {
             $newRole = array_key_exists('role_id', $attributes)
                 ? Role::query()
@@ -49,45 +51,12 @@ class UserAccessService
             }
 
             if ($newRole !== null && $previousRole?->id !== $newRole->id) {
-                $overridesToPurge = $user->permissionOverrides()->get();
-                if ($overridesToPurge->isNotEmpty()) {
-                    $purgedList = $overridesToPurge->map(fn ($ov) => [
-                        'permission_name' => $ov->permission_name,
-                        'effect' => $ov->effect,
-                    ])->values()->toArray();
-
-                    $user->permissionOverrides()->delete();
-
-                    $this->audit->accountHistory(
-                        $user,
-                        $actor,
-                        'user.permission_overrides_purged',
-                        "Permission overrides were purged due to role change from {$previousRole?->name} to {$newRole->name}.",
-                        [
-                            'role' => [
-                                'before' => $previousRole?->name,
-                                'after' => $newRole->name,
-                            ],
-                            'permission_overrides' => [
-                                'before' => $purgedList,
-                                'after' => [],
-                            ],
-                        ],
-                        $request,
-                    );
-
-                    $this->audit->activity(
-                        $actor,
-                        'user.permission_overrides_purged',
-                        'User Management',
-                        'Purged '.count($purgedList)." permission override(s) for {$user->full_name} during role change to {$newRole->name}.",
-                        $request,
-                        ['resource_type' => 'User', 'resource_id' => $user->id, 'purged_count' => count($purgedList)],
-                    );
-                } else {
-                    $user->permissionOverrides()->delete();
+                if (in_array($newRole->name, RoleNames::adminRoles(), true) && $user->permissionOverrides()
+                    ->whereIn('permission_name', EffectivePermissionService::ADMIN_PERMISSIONS)->where('effect', 'deny')->exists()) {
+                    throw \Illuminate\Validation\ValidationException::withMessages([
+                        'role_id' => 'Remove management permission denials before assigning Administrator. Other overrides will be preserved.',
+                    ]);
                 }
-
                 $user->syncRoles([$newRole->name]);
                 $this->recordRoleChange($user, $actor, $previousRole, $newRole, $request);
             }
@@ -109,10 +78,17 @@ class UserAccessService
             }
 
             if (array_key_exists('permission_overrides', $attributes)) {
-                $currentRoleName = strtolower($user->roles->first()?->name ?? '');
-                if (! in_array($currentRoleName, RoleNames::adminRoles(), true)) {
-                    $this->syncPermissionOverrides($user, $actor, $attributes['permission_overrides'], $request);
+                $overrides = $attributes['permission_overrides'];
+                if ($user->hasAnyRole(RoleNames::adminRoles())) {
+                    foreach ($overrides as $override) {
+                        if (in_array($override['permission_name'], EffectivePermissionService::ADMIN_PERMISSIONS, true) && $override['effect'] === 'deny') {
+                            throw \Illuminate\Validation\ValidationException::withMessages([
+                                'permission_overrides' => 'Administrator management permissions cannot be denied. Demote the account first if appropriate.',
+                            ]);
+                        }
+                    }
                 }
+                $this->syncPermissionOverrides($user, $actor, $overrides, $request);
             }
 
             return $user->fresh(['office', 'division', 'roles', 'pmisEmployee', 'permissionOverrides']);

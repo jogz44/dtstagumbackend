@@ -67,10 +67,18 @@ class RoleController extends Controller
 
     public function updatePermissions(Request $request, Role $role): JsonResponse
     {
+        abort_unless($request->user()->is_active && $request->user()->hasAnyRole(RoleNames::adminRoles()), 403);
+
         $validated = $request->validate([
             'permissions' => ['present', 'array'],
-            'permissions.*' => ['string', Rule::exists('permissions', 'name')],
+            'permissions.*' => ['string', Rule::exists('permissions', 'name')->where('guard_name', 'web')->whereNull('deleted_at')],
         ]);
+
+        if (in_array($role->name, RoleNames::adminRoles(), true) && array_diff(\App\Services\EffectivePermissionService::ADMIN_PERMISSIONS, $validated['permissions'])) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'permissions' => 'Administrator defaults must retain user and permission management access.',
+            ]);
+        }
 
         $role->syncPermissions($validated['permissions']);
         $role->load('permissions');

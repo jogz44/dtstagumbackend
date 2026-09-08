@@ -20,6 +20,8 @@ class UserAccessResource extends JsonResource
             'last_name' => $this->last_name,
             'office' => $this->office?->name ?? $this->pmisEmployee?->office,
             'division' => $this->division?->name ?? $this->pmisEmployee?->division,
+            'effective_permissions' => app(\App\Services\EffectivePermissionService::class)->names($this->resource),
+            'permission_matrix' => app(\App\Services\EffectivePermissionService::class)->matrix($this->resource),
             'role_id' => $role?->id,
             'role' => $role?->name,
             'role_label' => $role ? RoleNames::label($role->name) : null,

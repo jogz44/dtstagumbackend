@@ -30,12 +30,19 @@ class RolesAndPermissionsSeeder extends Seeder
             return [$role['name'] => Role::updateOrCreate(['name' => $role['name'], 'guard_name' => $role['guard_name']], $role)];
         });
 
+        $permissions = array_merge($permissions, [
+            ['name' => 'can_archive_document', 'guard_name' => 'web', 'group_name' => 'Documents'],
+            ['name' => 'reports.view', 'guard_name' => 'web', 'group_name' => 'Reports'],
+            ['name' => 'reports.export', 'guard_name' => 'web', 'group_name' => 'Reports'],
+            ['name' => 'users.permissions.manage', 'guard_name' => 'web', 'group_name' => 'System Administration'],
+        ]);
+
         $permissionModels = collect($permissions)->mapWithKeys(function (array $permission) {
             return [$permission['name'] => Permission::updateOrCreate(['name' => $permission['name'], 'guard_name' => $permission['guard_name']], $permission)];
         });
 
         $roleModels['admin']->syncPermissions(array_column($permissions, 'name'));
-        $roleModels['supervisor']->syncPermissions(array_column($permissions, 'name'));
+        $roleModels['supervisor']->syncPermissions(array_values(array_diff(array_column($permissions, 'name'), ['users.manage', 'users.permissions.manage'])));
         $roleModels['receiver']->syncPermissions(['can_receive_documents', 'can_register_documents']);
     }
 }

@@ -19,15 +19,7 @@ class UpdateUserAccessRequest extends FormRequest
             return false;
         }
 
-        if ($user->username === 'admin' || $user->hasAnyRole(RoleNames::adminRoles())) {
-            return true;
-        }
-
-        try {
-            return $user->hasPermissionTo('users.permissions.manage') || $user->hasPermissionTo('users.manage');
-        } catch (\Throwable) {
-            return false;
-        }
+        return $user->is_active && $user->hasAnyRole(RoleNames::adminRoles());
     }
 
     public function rules(): array
@@ -57,7 +49,7 @@ class UpdateUserAccessRequest extends FormRequest
             'is_active' => ['sometimes', 'required', 'boolean'],
 
             'permission_overrides' => ['sometimes', 'array'],
-            'permission_overrides.*.permission_name' => ['required_with:permission_overrides', 'string', 'max:255'],
+            'permission_overrides.*.permission_name' => ['required_with:permission_overrides', 'string', 'distinct', Rule::exists('permissions', 'name')->where('guard_name', 'web')->whereNull('deleted_at')],
             'permission_overrides.*.effect' => ['required_with:permission_overrides', 'string', Rule::in(['grant', 'deny'])],
 
             'first_name' => ['prohibited'],

@@ -30,19 +30,7 @@ class StoreUserRequest extends FormRequest
             return false;
         }
 
-        if ($authUser->username === 'admin' || $authUser->hasAnyRole(\App\Support\RoleNames::adminRoles())) {
-            return true;
-        }
-
-        try {
-            if ($authUser->hasPermissionTo('users.manage') || $authUser->hasPermissionTo('users.create')) {
-                return true;
-            }
-        } catch (\Throwable) {
-            // Missing optional permission
-        }
-
-        return false;
+        return $authUser->is_active && $authUser->hasAnyRole(\App\Support\RoleNames::adminRoles());
     }
 
     public function rules(): array

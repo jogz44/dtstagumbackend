@@ -48,6 +48,13 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasRoles, HasUuids, Notifiable, SoftDeletes;
 
+    public function hasPermissionTo($permission, $guardName = null): bool
+    {
+        $permission = $this->filterPermission($permission, $guardName);
+
+        return app(\App\Services\EffectivePermissionService::class)->allows($this, $permission->name);
+    }
+
     protected $primaryKey = 'id';
     public $incrementing = false;
     protected $keyType = 'string';

@@ -18,10 +18,7 @@ class AdministratorProtectionService
         $activeAdministrators = User::query()
             ->with('roles')
             ->where('is_active', true)
-            ->where(function ($query) {
-                $query->where('username', 'admin')
-                    ->orWhereHas('roles', fn ($roleQuery) => $roleQuery->whereIn('name', RoleNames::adminRoles()));
-            })
+            ->whereHas('roles', fn ($query) => $query->whereIn('name', RoleNames::adminRoles()))
             ->orderBy('id')
             ->lockForUpdate()
             ->get();
@@ -36,8 +33,7 @@ class AdministratorProtectionService
             $this->reject('is_active', 'You cannot deactivate your own account.');
         }
 
-        $isAdministrator = $lockedTarget->username === 'admin'
-            || $lockedTarget->hasAnyRole(RoleNames::adminRoles());
+        $isAdministrator = $lockedTarget->hasAnyRole(RoleNames::adminRoles());
 
         if (! $isAdministrator) {
             return $lockedTarget;
@@ -48,12 +44,6 @@ class AdministratorProtectionService
 
         if (! $isDemotion && ! $isDeactivation) {
             return $lockedTarget;
-        }
-
-        if ($lockedTarget->username === 'admin') {
-            $field = $isDemotion ? 'role_id' : 'is_active';
-            $action = $isDemotion ? 'demoted' : 'deactivated';
-            $this->reject($field, "This account cannot be {$action}.");
         }
 
         if ($activeAdministrators->count() <= 1) {
