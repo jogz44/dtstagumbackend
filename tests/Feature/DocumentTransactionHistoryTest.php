@@ -32,6 +32,7 @@ class DocumentTransactionHistoryTest extends TestCase
 
         $response = $this->postJson('/api/documents', [
             'origin_sender' => 'HRMO',
+            'issued_by' => 'HRMO Office',
             'sender_name' => 'Regina Registrar',
             'document_type' => 'Memorandum',
             'priority_level' => 'Normal',
@@ -151,6 +152,7 @@ class DocumentTransactionHistoryTest extends TestCase
 
         $response = $this->postJson('/api/documents', [
             'origin_sender' => 'HRMO',
+            'issued_by' => 'HRMO Office',
             'sender_name' => 'Regina Registrar',
             'document_type' => 'Memorandum',
             'priority_level' => 'Normal',

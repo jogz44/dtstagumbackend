@@ -51,12 +51,15 @@ class DashboardAnalyticsService
         // 6. Overdue Trend
         $overdueTrend = $this->calculateOverdueTrend($baseAuthorizedQuery, $startDate, $endDate);
 
+        // 6b. Completed Trend (Office-wide completion trend)
+        $completedTrend = $this->calculateCompletedTrend($viewer, $startDate, $endDate);
+
         // 7. Performance Summary
         $performance = $this->calculatePerformanceSummary($baseAuthorizedQuery, $rangeQuery, $startDate, $endDate);
 
         // 8. Yearly Overview (static cards powered by selected year and event timestamps)
         $year = (int) ($filters['year'] ?? Carbon::now('Asia/Manila')->year);
-        $yearlyOverview = $this->calculateYearlyOverview($baseAuthorizedQuery, $year);
+        $yearlyOverview = $this->calculateYearlyOverview($viewer, $baseAuthorizedQuery, $year);
 
         return [
             'range_info' => [
@@ -72,6 +75,7 @@ class DashboardAnalyticsService
             'activity_trend' => $activityTrend,
             'top_document_types' => $topDocumentTypes,
             'overdue_trend' => $overdueTrend,
+            'completed_trend' => $completedTrend,
             'performance' => $performance,
             'yearly_overview' => $yearlyOverview,
         ];
@@ -250,7 +254,8 @@ class DashboardAnalyticsService
     {
         $trend = [];
         $current = $startDate->copy()->startOfDay();
-        $end = $endDate->copy()->startOfDay();
+        $today = Carbon::today('Asia/Manila');
+        $end = ($endDate->gt($today) && $startDate->lte($today)) ? $today->copy()->startOfDay() : $endDate->copy()->startOfDay();
 
         // Limit maximum days in trend calculation to prevent runaway loops
         $daysCount = $current->diffInDays($end) + 1;
@@ -321,8 +326,9 @@ class DashboardAnalyticsService
     {
         $trend = [];
         $current = $startDate->copy()->startOfDay();
-        $end = $endDate->copy()->startOfDay();
-        $todayStr = Carbon::today('Asia/Manila')->format('Y-m-d');
+        $today = Carbon::today('Asia/Manila');
+        $end = ($endDate->gt($today) && $startDate->lte($today)) ? $today->copy()->startOfDay() : $endDate->copy()->startOfDay();
+        $todayStr = $today->format('Y-m-d');
 
         $daysCount = $current->diffInDays($end) + 1;
         if ($daysCount > 90) {
@@ -412,7 +418,51 @@ class DashboardAnalyticsService
         ];
     }
 
-    private function calculateYearlyOverview(Builder $baseQuery, int $year): array
+    private function calculateCompletedTrend(User $viewer, Carbon $startDate, Carbon $endDate): array
+    {
+        $trend = [];
+        $current = $startDate->copy()->startOfDay();
+        $today = Carbon::today('Asia/Manila');
+        $end = ($endDate->gt($today) && $startDate->lte($today)) ? $today->copy()->startOfDay() : $endDate->copy()->startOfDay();
+
+        $daysCount = $current->diffInDays($end) + 1;
+        if ($daysCount > 90) {
+            $current = $end->copy()->subDays(89);
+        }
+
+        while ($current->lte($end)) {
+            $dayStart = $current->copy()->startOfDay();
+            $dayEnd = $current->copy()->endOfDay();
+            $dateStr = $current->format('Y-m-d');
+
+            $officeQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+            $officeQuery = $this->applyOfficeScope($officeQuery, $viewer);
+
+            $completedCount = (clone $officeQuery)
+                ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
+                ->where(function ($q) use ($dayStart, $dayEnd) {
+                    $q->where(function ($sub) use ($dayStart, $dayEnd) {
+                        $sub->whereNotNull('completed_at')
+                            ->whereBetween('completed_at', [$dayStart, $dayEnd]);
+                    })->orWhere(function ($sub) use ($dayStart, $dayEnd) {
+                        $sub->whereNull('completed_at')
+                            ->whereBetween('updated_at', [$dayStart, $dayEnd]);
+                    });
+                })
+                ->count();
+
+            $trend[] = [
+                'date' => $dateStr,
+                'count' => $completedCount,
+            ];
+
+            $current->addDay();
+        }
+
+        return $trend;
+    }
+
+    private function calculateYearlyOverview(User $viewer, Builder $baseQuery, int $year): array
     {
         $timezone = 'Asia/Manila';
         $yearStart = Carbon::create($year, 1, 1, 0, 0, 0, $timezone);
@@ -424,8 +474,12 @@ class DashboardAnalyticsService
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
         $terminalStatuses = DocumentStatuses::TERMINAL;
 
-        // Total Received This Year - fallback to created_at if received_at is null
-        $receivedTotal = (clone $baseQuery)
+        // Office-wide query for Receiver exceptions ("Received for this year" and yearly completed statistics)
+        $officeQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+        $officeQuery = $this->applyOfficeScope($officeQuery, $viewer);
+
+        // Total Received This Year - office-wide aggregate
+        $receivedTotal = (clone $officeQuery)
             ->where(function ($q) use ($yearStart, $yearEnd) {
                 $q->where(function ($sub) use ($yearStart, $yearEnd) {
                     $sub->whereNotNull('received_at')
@@ -439,12 +493,12 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Pending total - current active status documents
+        // Pending total - role-scoped active status documents (personal for Receiver, office for Admin/Supervisor)
         $pendingTotal = (clone $baseQuery)
             ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
             ->count();
 
-        // Overdue total - currently active overdue documents
+        // Overdue total - role-scoped active overdue documents (personal for Receiver, office for Admin/Supervisor)
         $overdueTotal = (clone $baseQuery)
             ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
             ->where(function ($q) {
@@ -455,8 +509,8 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Completed This Year - fallback to updated_at if completed_at is null
-        $completedTotal = (clone $baseQuery)
+        // Completed This Year - office-wide aggregate exception for all roles including Receiver
+        $completedTotal = (clone $officeQuery)
             ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
             ->where(function ($q) use ($yearStart, $yearEnd) {
                 $q->where(function ($sub) use ($yearStart, $yearEnd) {
@@ -471,8 +525,8 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Received Today - fallback to created_at if received_at is null
-        $receivedToday = (clone $baseQuery)
+        // Received Today - office-wide aggregate
+        $receivedToday = (clone $officeQuery)
             ->where(function ($q) use ($todayStart, $todayEnd) {
                 $q->where(function ($sub) use ($todayStart, $todayEnd) {
                     $sub->whereNotNull('received_at')
@@ -496,34 +550,40 @@ class DashboardAnalyticsService
         ];
     }
 
-    private function applyDashboardScope($query, User $user)
+    public function applyOfficeScope($query, User $user)
     {
-        $role = strtolower($user->roles->first()?->name ?? $user->role_name ?? '');
         $officeName = $user->office?->name;
-        $divisionName = $user->division?->name;
 
-        if (in_array($role, ['admin', 'super_admin', 'administrator'], true)) {
-            // Admin: only documents within their office
-            return $query->where(function ($q) use ($officeName, $user) {
-                $q->where('office_assignment', $officeName)
-                  ->orWhereHas('creator', function ($qCreator) use ($user) {
-                      $qCreator->where('office_id', $user->office_id);
-                  });
-            });
-        } elseif ($role === 'supervisor') {
-            // Supervisor: division-level if division exists, otherwise office-level (like admin)
-            if ($divisionName) {
-                return $query->where('division_assignment', $divisionName);
-            } else {
-                return $query->where(function ($q) use ($officeName, $user) {
-                    $q->where('office_assignment', $officeName)
-                      ->orWhereHas('creator', function ($qCreator) use ($user) {
-                          $qCreator->where('office_id', $user->office_id);
-                      });
+        return $query->where(function ($q) use ($officeName, $user) {
+            if ($officeName) {
+                $q->where('office_assignment', $officeName);
+                if ($user->office_id) {
+                    $q->orWhere(function ($sub) use ($user) {
+                        $sub->where(function ($nullQ) {
+                            $nullQ->whereNull('office_assignment')
+                                  ->orWhere('office_assignment', '');
+                        })->whereHas('creator', function ($qCreator) use ($user) {
+                            $qCreator->where('office_id', $user->office_id);
+                        });
+                    });
+                }
+            } elseif ($user->office_id) {
+                $q->whereHas('creator', function ($qCreator) use ($user) {
+                    $qCreator->where('office_id', $user->office_id);
                 });
             }
+        });
+    }
+
+    public function applyDashboardScope($query, User $user)
+    {
+        $role = strtolower($user->roles->first()?->name ?? $user->role_name ?? '');
+
+        if (in_array($role, ['admin', 'super_admin', 'administrator', 'supervisor'], true)) {
+            // Admin & Supervisor: count all pending, overdue, and completed stats across their entire office
+            return $this->applyOfficeScope($query, $user);
         } else {
-            // Receiver / Standard user: only documents assigned to them or created by them
+            // Receiver / Standard user: strictly personal stats for pending and overdue
             return $query->where(function ($q) use ($user) {
                 $q->where('created_by', $user->id)
                   ->orWhere('assigned_user', $user->full_name)

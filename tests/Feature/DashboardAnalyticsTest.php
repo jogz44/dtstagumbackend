@@ -276,4 +276,62 @@ class DashboardAnalyticsTest extends TestCase
         $resB = $this->getJson('/api/dashboard/analytics');
         $resB->assertStatus(200)->assertJsonPath('yearly_overview.received_total', 1);
     }
+
+    /** 10. Role-based statistics visibility rules test */
+    public function test_receiver_role_personal_pending_overdue_and_office_wide_completed_received(): void
+    {
+        $receiverRole = Role::firstOrCreate(['name' => 'receiver', 'guard_name' => 'web']);
+        $supervisorRole = Role::firstOrCreate(['name' => 'supervisor', 'guard_name' => 'web']);
+
+        $receiver = $this->createTestUser($this->office);
+        $receiver->assignRole($receiverRole);
+
+        $supervisor = $this->createTestUser($this->office);
+        $supervisor->assignRole($supervisorRole);
+
+        $otherUser = $this->createTestUser($this->office);
+
+        // Document 1: Assigned to receiver (Pending)
+        $this->createTestDocument([
+            'created_by' => $receiver->id,
+            'assigned_user' => $receiver->id,
+            'office_assignment' => 'HR Division',
+            'status' => 'pending',
+            'received_at' => Carbon::now('Asia/Manila'),
+        ]);
+
+        // Document 2: Assigned to other user in office (Pending)
+        $this->createTestDocument([
+            'created_by' => $otherUser->id,
+            'assigned_user' => $otherUser->id,
+            'office_assignment' => 'HR Division',
+            'status' => 'pending',
+            'received_at' => Carbon::now('Asia/Manila'),
+        ]);
+
+        // Document 3: Completed in office (Created by other user)
+        $this->createTestDocument([
+            'created_by' => $otherUser->id,
+            'office_assignment' => 'HR Division',
+            'status' => 'completed',
+            'received_at' => Carbon::now('Asia/Manila'),
+            'completed_at' => Carbon::now('Asia/Manila'),
+        ]);
+
+        // Receiver: Pending should be 1 (personal), Completed should be 1 (office-wide exception), Received total should be 3 (office-wide exception)
+        Sanctum::actingAs($receiver, ['*']);
+        $resReceiver = $this->getJson('/api/dashboard/analytics');
+        $resReceiver->assertStatus(200)
+            ->assertJsonPath('yearly_overview.pending_total', 1)
+            ->assertJsonPath('yearly_overview.completed_total', 1)
+            ->assertJsonPath('yearly_overview.received_total', 3);
+
+        // Supervisor: Pending should be 2 (office-wide total), Completed should be 1 (office-wide total), Received total should be 3 (office-wide total)
+        Sanctum::actingAs($supervisor, ['*']);
+        $resSupervisor = $this->getJson('/api/dashboard/analytics');
+        $resSupervisor->assertStatus(200)
+            ->assertJsonPath('yearly_overview.pending_total', 2)
+            ->assertJsonPath('yearly_overview.completed_total', 1)
+            ->assertJsonPath('yearly_overview.received_total', 3);
+    }
 }

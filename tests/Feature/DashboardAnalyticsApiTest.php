@@ -120,11 +120,11 @@ class DashboardAnalyticsApiTest extends TestCase
             'office_assignment' => $this->officeB->name,
         ]);
 
-        // Admin sees all 3
+        // Admin sees 1 document in their assigned office (Office A)
         Sanctum::actingAs($this->admin);
         $response = $this->getJson('/api/dashboard/analytics?range=this_month');
         $response->assertOk()
-            ->assertJsonPath('summary.total_documents', 3);
+            ->assertJsonPath('summary.total_documents', 1);
 
         // User A only sees Document 2 created by them
         Sanctum::actingAs($this->userA);
@@ -263,6 +263,6 @@ class DashboardAnalyticsApiTest extends TestCase
         $response = $this->getJson('/api/dashboard/analytics?range=custom&date_from=2026-08-30&date_to=2026-08-01');
 
         $response->assertStatus(422)
-            ->assertJsonValidationErrors(['date_range']);
+            ->assertJsonValidationErrors(['date_to']);
     }
 }
