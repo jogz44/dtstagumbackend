@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Console\Commands\SyncPmisEmployees;
-use App\Models\AccountHistoryEvent;
 use App\Models\Division;
 use App\Models\Office;
 use App\Models\PmisEmployee;
@@ -129,54 +128,25 @@ class UserAccessUpdateApiTest extends TestCase
         $this->assertTrue($this->targetUser->is_active);
     }
 
-    public function test_updating_role_purges_permission_overrides(): void
+    public function test_updating_role_preserves_permission_overrides(): void
     {
-        $permission = $this->seedPermission('documents.view', 'Documents', 'View documents');
-
+        $this->seedPermission('documents.view', 'Documents', 'View documents');
         UserPermissionOverride::create([
             'user_id' => $this->targetUser->id,
             'permission_name' => 'documents.view',
             'effect' => 'grant',
         ]);
 
+        $this->patchJson("/api/users/{$this->targetUser->id}/access", [
+            'role_id' => (string) $this->supervisorRole->id,
+        ])->assertOk();
+
         $this->assertDatabaseHas('user_permission_overrides', [
             'user_id' => $this->targetUser->id,
+            'permission_name' => 'documents.view',
+            'effect' => 'grant',
         ]);
-
-        $response = $this->patchJson("/api/users/{$this->targetUser->id}/access", [
-            'role_id' => (string) $this->supervisorRole->id,
-            'is_active' => true,
-        ]);
-
-        $response->assertStatus(200);
-        $this->assertDatabaseMissing('user_permission_overrides', [
-            'user_id' => $this->targetUser->id,
-        ]);
-
-        $this->assertDatabaseHas('account_history_events', [
-            'subject_user_id' => $this->targetUser->id,
-            'actor_user_id' => $this->adminUser->id,
-            'event_type' => 'user.permission_overrides_purged',
-        ]);
-
-        $this->assertDatabaseHas('activity_events', [
-            'actor_user_id' => $this->adminUser->id,
-            'resource_id' => $this->targetUser->id,
-            'activity_type' => 'user.permission_overrides_purged',
-        ]);
-
-        $audit = AccountHistoryEvent::query()
-            ->where('subject_user_id', $this->targetUser->id)
-            ->where('event_type', 'user.permission_overrides_purged')
-            ->sole();
-
-        $this->assertSame('receiver', $audit->changes['role']['before']);
-        $this->assertSame('supervisor', $audit->changes['role']['after']);
-        $this->assertSame([
-            ['permission_name' => $permission->name, 'effect' => 'grant'],
-        ], $audit->changes['permission_overrides']['before']);
-        $this->assertSame([], $audit->changes['permission_overrides']['after']);
-        $this->assertNotNull($audit->occurred_at);
+        $this->assertTrue($this->targetUser->fresh()->hasPermissionTo('documents.view'));
     }
 
     public function test_access_update_accepts_boolean_is_active(): void
@@ -255,7 +225,7 @@ class UserAccessUpdateApiTest extends TestCase
             ->assertJsonValidationErrors(['is_active']);
     }
 
-    public function test_user_with_canonical_permission_users_permissions_manage_can_update_access(): void
+    public function test_non_admin_with_management_permission_cannot_update_access(): void
     {
         $this->seedPermission('users.permissions.manage', 'Users', 'Manage user access settings');
         $this->targetUser->givePermissionTo('users.permissions.manage');
@@ -276,9 +246,9 @@ class UserAccessUpdateApiTest extends TestCase
             'is_active' => true,
         ]);
 
-        $response->assertStatus(200);
+        $response->assertForbidden();
         $anotherUser->refresh();
-        $this->assertTrue($anotherUser->hasRole('supervisor'));
+        $this->assertTrue($anotherUser->hasRole('receiver'));
     }
 
     public function test_invalid_role_returns_422(): void

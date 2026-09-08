@@ -8,6 +8,7 @@ use App\Models\UserPermissionOverride;
 use App\Support\RoleNames;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class UserAccessService
 {
@@ -53,7 +54,7 @@ class UserAccessService
             if ($newRole !== null && $previousRole?->id !== $newRole->id) {
                 if (in_array($newRole->name, RoleNames::adminRoles(), true) && $user->permissionOverrides()
                     ->whereIn('permission_name', EffectivePermissionService::ADMIN_PERMISSIONS)->where('effect', 'deny')->exists()) {
-                    throw \Illuminate\Validation\ValidationException::withMessages([
+                    throw ValidationException::withMessages([
                         'role_id' => 'Remove management permission denials before assigning Administrator. Other overrides will be preserved.',
                     ]);
                 }
@@ -82,7 +83,7 @@ class UserAccessService
                 if ($user->hasAnyRole(RoleNames::adminRoles())) {
                     foreach ($overrides as $override) {
                         if (in_array($override['permission_name'], EffectivePermissionService::ADMIN_PERMISSIONS, true) && $override['effect'] === 'deny') {
-                            throw \Illuminate\Validation\ValidationException::withMessages([
+                            throw ValidationException::withMessages([
                                 'permission_overrides' => 'Administrator management permissions cannot be denied. Demote the account first if appropriate.',
                             ]);
                         }
@@ -185,6 +186,7 @@ class UserAccessService
             ->values()
             ->toArray();
 
+        $user->syncPermissions([]);
         $user->permissionOverrides()->delete();
 
         foreach ($overrides as $override) {

@@ -6,9 +6,11 @@ use App\Models\Division;
 use App\Models\Document;
 use App\Models\DocumentHistory;
 use App\Models\Office;
+use App\Models\Permission;
 use App\Models\Role;
 use App\Models\User;
 use Carbon\Carbon;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -20,11 +22,17 @@ class ReportControllerTest extends TestCase
     use RefreshDatabase;
 
     protected User $adminUser;
+
     protected User $supervisorUser;
+
     protected User $staffUser;
+
     protected Office $officeA;
+
     protected Office $officeB;
+
     protected Division $divisionA;
+
     protected Division $divisionB;
 
     protected function setUp(): void
@@ -34,6 +42,11 @@ class ReportControllerTest extends TestCase
         Role::firstOrCreate(['name' => 'admin', 'guard_name' => 'web'], ['id' => (string) Str::uuid()]);
         Role::firstOrCreate(['name' => 'supervisor', 'guard_name' => 'web'], ['id' => (string) Str::uuid()]);
         Role::firstOrCreate(['name' => 'receiver', 'guard_name' => 'web'], ['id' => (string) Str::uuid()]);
+
+        $permission = Permission::findOrCreate('reports.view', 'web');
+        foreach (['admin', 'supervisor', 'receiver'] as $role) {
+            Role::findByName($role, 'web')->givePermissionTo($permission);
+        }
 
         $this->officeA = Office::create(['code' => 'OFF-A', 'name' => 'City Treasurer', 'is_active' => true]);
         $this->officeB = Office::create(['code' => 'OFF-B', 'name' => 'City Planning', 'is_active' => true]);
@@ -56,8 +69,8 @@ class ReportControllerTest extends TestCase
         static $sequence = 0;
         $sequence++;
 
-        return User::create([
-            'username' => $overrides['username'] ?? "user_{$sequence}_" . Str::random(5),
+        $user = User::create([
+            'username' => $overrides['username'] ?? "user_{$sequence}_".Str::random(5),
             'password' => Hash::make('password123'),
             'first_name' => $overrides['first_name'] ?? 'Test',
             'last_name' => $overrides['last_name'] ?? "User {$sequence}",
@@ -65,6 +78,9 @@ class ReportControllerTest extends TestCase
             'office_id' => $overrides['office_id'] ?? null,
             'division_id' => $overrides['division_id'] ?? null,
         ]);
+        $user->givePermissionTo(Permission::findByName('reports.view', 'web'));
+
+        return $user;
     }
 
     /** 1. Multi-office Routing Fixture Test */
@@ -149,7 +165,7 @@ class ReportControllerTest extends TestCase
             'status' => 'registered',
         ]);
 
-        $this->expectException(\Illuminate\Database\QueryException::class);
+        $this->expectException(QueryException::class);
 
         Document::create([
             'tracking_number' => 'DOC-UNIQUE-100',

@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Permission;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Laravel\Sanctum\Sanctum;
@@ -22,6 +23,7 @@ class ReportApiTest extends TestCase
             'is_active' => true,
         ]);
 
+        $user->givePermissionTo(Permission::findOrCreate('reports.view', 'web'));
         Sanctum::actingAs($user);
 
         $response = $this->getJson('/api/reports');

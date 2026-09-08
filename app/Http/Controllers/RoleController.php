@@ -4,11 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\Permission;
 use App\Models\Role;
+use App\Services\EffectivePermissionService;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class RoleController extends Controller
 {
@@ -74,8 +76,8 @@ class RoleController extends Controller
             'permissions.*' => ['string', Rule::exists('permissions', 'name')->where('guard_name', 'web')->whereNull('deleted_at')],
         ]);
 
-        if (in_array($role->name, RoleNames::adminRoles(), true) && array_diff(\App\Services\EffectivePermissionService::ADMIN_PERMISSIONS, $validated['permissions'])) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+        if (in_array($role->name, RoleNames::adminRoles(), true) && array_diff(EffectivePermissionService::ADMIN_PERMISSIONS, $validated['permissions'])) {
+            throw ValidationException::withMessages([
                 'permissions' => 'Administrator defaults must retain user and permission management access.',
             ]);
         }

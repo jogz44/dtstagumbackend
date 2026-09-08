@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests;
 
+use App\Support\RoleNames;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -30,7 +31,7 @@ class StoreUserRequest extends FormRequest
             return false;
         }
 
-        return $authUser->is_active && $authUser->hasAnyRole(\App\Support\RoleNames::adminRoles());
+        return $authUser->is_active && $authUser->hasAnyRole(RoleNames::adminRoles());
     }
 
     public function rules(): array

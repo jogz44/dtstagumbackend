@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Document;
 use App\Models\Notification;
+use App\Models\Permission;
 use App\Models\User;
 use App\Services\DocumentNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,6 +34,7 @@ class DocumentNotificationTest extends TestCase
             'status' => 'registered',
         ]);
 
+        $sender->givePermissionTo(Permission::findOrCreate('can_transfer_documents', 'web'));
         Sanctum::actingAs($sender);
 
         $response = $this->postJson("/api/documents/{$document->id}/transfer", [

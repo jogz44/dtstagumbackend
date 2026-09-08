@@ -1,8 +1,10 @@
 <?php
 
+use App\Models\User;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Spatie\Permission\PermissionRegistrar;
 
 return new class extends Migration
 {
@@ -35,13 +37,13 @@ return new class extends Migration
 
         // Preserve legacy direct assignments as explicit user grants, without replacing existing overrides.
         foreach (DB::table('model_has_permissions')->join('permissions', 'permissions.id', '=', 'permission_id')
-            ->where('model_type', App\Models\User::class)->select('model_id', 'permissions.name')->get() as $grant) {
+            ->where('model_type', User::class)->select('model_id', 'permissions.name')->get() as $grant) {
             DB::table('user_permission_overrides')->insertOrIgnore([
                 'user_id' => $grant->model_id, 'permission_name' => $grant->name, 'effect' => 'grant',
                 'created_at' => now(), 'updated_at' => now(),
             ]);
         }
-        app(Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
     public function down(): void

@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\EffectivePermissionService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -21,6 +22,8 @@ class UserResource extends JsonResource
     {
         $role = $this->relationLoaded('roles') ? $this->roles->first() : null;
         $roleName = $role?->name ? $this->normalizeRoleName($role->name) : null;
+
+        $permissionMatrix = app(EffectivePermissionService::class)->matrix($this->resource);
 
         return [
             'id' => $this->id,
@@ -50,8 +53,8 @@ class UserResource extends JsonResource
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),
             'pmis_employee' => $this->whenLoaded('pmisEmployee'),
-            'effective_permissions' => app(\App\Services\EffectivePermissionService::class)->names($this->resource),
-            'permission_matrix' => app(\App\Services\EffectivePermissionService::class)->matrix($this->resource),
+            'effective_permissions' => collect($permissionMatrix)->where('allowed', true)->pluck('name')->values()->all(),
+            'permission_matrix' => $permissionMatrix,
             'role_id' => $role?->id,
             'role' => $role ? [
                 'id' => $role->id,

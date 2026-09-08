@@ -28,18 +28,19 @@ class EffectivePermissionService
         $user->loadMissing('permissionOverrides');
         $override = $user->permissionOverrides->firstWhere('permission_name', $permission);
 
-        return $override ? $override->effect === 'grant' : in_array($permission, $this->defaults($user), true);
+        return $override ? $override->effect === 'grant' : ($user->hasDirectPermission($permission) || in_array($permission, $this->defaults($user), true));
     }
 
     public function matrix(User $user): array
     {
         $defaults = $this->defaults($user);
-        $user->loadMissing('permissionOverrides');
+        $user->loadMissing(['permissionOverrides', 'permissions']);
+        $direct = $user->permissions->pluck('name')->all();
         $overrides = $user->permissionOverrides->keyBy('permission_name');
 
         return Permission::query()->where('guard_name', 'web')->orderBy('group_name')->orderBy('name')->get()
-            ->map(function (Permission $permission) use ($defaults, $overrides): array {
-                $effect = $overrides->get($permission->name)?->effect;
+            ->map(function (Permission $permission) use ($defaults, $overrides, $direct): array {
+                $effect = $overrides->get($permission->name)?->effect ?? (in_array($permission->name, $direct, true) ? 'grant' : null);
                 $inherited = in_array($permission->name, $defaults, true);
 
                 return [

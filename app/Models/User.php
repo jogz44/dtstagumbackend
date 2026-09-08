@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Services\EffectivePermissionService;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Carbon;
 use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
@@ -33,16 +35,16 @@ use Spatie\Permission\Traits\HasRoles;
  * @property string|null $division_id
  * @property string|null $employee_id
  * @property string|null $pmis_employee_id
- * @property \Illuminate\Support\Carbon|null $birthdate
+ * @property Carbon|null $birthdate
  * @property string|null $position
  * @property string|null $employment_status
  * @property string|null $avatar_url
  * @property bool $is_active
  * @property string|null $email
- * @property \Illuminate\Support\Carbon|null $last_login_at
- * @property \Illuminate\Support\Carbon|null $created_at
- * @property \Illuminate\Support\Carbon|null $updated_at
- * @property \Illuminate\Support\Carbon|null $deleted_at
+ * @property Carbon|null $last_login_at
+ * @property Carbon|null $created_at
+ * @property Carbon|null $updated_at
+ * @property Carbon|null $deleted_at
  */
 class User extends Authenticatable
 {
@@ -52,11 +54,13 @@ class User extends Authenticatable
     {
         $permission = $this->filterPermission($permission, $guardName);
 
-        return app(\App\Services\EffectivePermissionService::class)->allows($this, $permission->name);
+        return app(EffectivePermissionService::class)->allows($this, $permission->name);
     }
 
     protected $primaryKey = 'id';
+
     public $incrementing = false;
+
     protected $keyType = 'string';
 
     protected $appends = [

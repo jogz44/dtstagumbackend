@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\DocumentHistory;
+use App\Models\Permission;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
@@ -26,6 +27,7 @@ class DocumentTransactionHistoryTest extends TestCase
             'is_active' => true,
         ]);
 
+        $user->givePermissionTo(Permission::findOrCreate('can_add_documents', 'web'));
         Sanctum::actingAs($user);
 
         $response = $this->postJson('/api/documents', [
@@ -144,6 +146,7 @@ class DocumentTransactionHistoryTest extends TestCase
             'is_active' => true,
         ]);
 
+        $actor->givePermissionTo(Permission::findOrCreate('can_add_documents', 'web'));
         Sanctum::actingAs($actor);
 
         $response = $this->postJson('/api/documents', [
