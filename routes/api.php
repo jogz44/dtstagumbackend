@@ -5,9 +5,12 @@ use App\Http\Controllers\AttentionSummaryController;
 use App\Http\Controllers\BarangayController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
+use App\Http\Controllers\DocumentEmailController;
 use App\Http\Controllers\DocumentTrackingController;
+use App\Http\Controllers\DocumentWorkflowController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\OrganizationController;
+use App\Http\Controllers\PerformanceRankingController;
 use App\Http\Controllers\PmisEmployeeController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\RoleController;
@@ -15,9 +18,6 @@ use App\Http\Controllers\ScanSessionController;
 use App\Http\Controllers\UserAuditController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\UserSecurityController;
-use App\Http\Controllers\DocumentWorkflowController;
-use App\Http\Controllers\PerformanceRankingController;
-use App\Http\Controllers\DocumentEmailController;
 use App\Http\Resources\UserResource;
 use App\Models\User;
 use App\Services\AuditService;
@@ -73,10 +73,10 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/me', function (Request $request) {
         $user = $request->user()->load(['roles', 'office', 'division', 'permissions', 'permissionOverrides']);
 
-        return new \App\Http\Resources\UserResource($user);
+        return new UserResource($user);
     });
 
-      Route::post('/logout', function (Request $request) {
+    Route::post('/logout', function (Request $request) {
         $token = $request->user()->currentAccessToken();
         if ($token && method_exists($token, 'delete')) {
             $token->delete();
@@ -140,6 +140,7 @@ Route::middleware('auth:sanctum')->group(function () {
         // Performance ranking routes
         Route::get('/performance/ranking', [PerformanceRankingController::class, 'ranking'])->middleware('can:performance_ranking.view');
         Route::get('/performance/summary', [PerformanceRankingController::class, 'summary'])->middleware('can:performance_ranking.view');
+        Route::get('/performance/users/{user}/export', [PerformanceRankingController::class, 'profile'])->middleware(['can:performance_ranking.view', 'can:reports.export']);
         Route::get('/performance/users/{user}', [PerformanceRankingController::class, 'profile'])->middleware('can:performance_ranking.view');
         Route::get('/performance/users/{user}/completed-documents', [PerformanceRankingController::class, 'completedDocuments'])->middleware('can:performance_ranking.view');
         Route::get('/documents', [DocumentController::class, 'index']);
@@ -213,7 +214,7 @@ Route::middleware('auth:sanctum')->group(function () {
                 'first_name' => 'sometimes|nullable|string|max:255',
                 'middle_name' => 'sometimes|nullable|string|max:255',
                 'last_name' => 'sometimes|nullable|string|max:255',
-                'email' => 'sometimes|nullable|email|max:255|unique:users,email,' . $user->id,
+                'email' => 'sometimes|nullable|email|max:255|unique:users,email,'.$user->id,
                 'contact_number' => 'sometimes|nullable|string|max:50',
                 'fullname' => 'sometimes|nullable|string|max:255',
                 'office' => 'sometimes|nullable|string|max:255',
