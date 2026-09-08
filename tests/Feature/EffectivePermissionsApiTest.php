@@ -125,10 +125,17 @@ class EffectivePermissionsApiTest extends TestCase
     {
         $this->overrides($this->admin, [['permission_name' => 'users.manage', 'effect' => 'deny']])->assertUnprocessable();
         $role = Role::findByName('admin', 'web');
-        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertUnprocessable();
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertForbidden();
         $this->patchJson("/api/users/{$this->admin->id}/access", ['role_id' => Role::findByName('receiver', 'web')->id])->assertUnprocessable();
         $this->overrides($this->admin, [['permission_name' => 'reports.export', 'effect' => 'deny']])->assertOk();
         $this->assertFalse($this->admin->fresh()->can('reports.export'));
+    }
+
+    public function test_administrator_role_permissions_cannot_be_edited(): void
+    {
+        $role = Role::findByName('admin', 'web');
+
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertForbidden();
     }
 
     public function test_username_does_not_confer_administrator_privileges(): void

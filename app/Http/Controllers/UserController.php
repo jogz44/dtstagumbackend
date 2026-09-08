@@ -258,6 +258,10 @@ class UserController extends Controller
             ], 422);
         }
 
+        if ($user->hasAnyRole(RoleNames::adminRoles())) {
+            abort(403, 'Administrator accounts cannot be edited by another administrator.');
+        }
+
         if ($user->trashed() || ! $user->is_active) {
             return response()->json([
                 'message' => 'This account is already deactivated.',

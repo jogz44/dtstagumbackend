@@ -108,6 +108,27 @@ class UserUpdateApiTest extends TestCase
         ]);
     }
 
+    public function test_administrator_cannot_update_another_administrator(): void
+    {
+        $otherAdministrator = User::create([
+            'username' => 'other.admin',
+            'password' => bcrypt('password'),
+            'first_name' => 'Other',
+            'last_name' => 'Administrator',
+            'is_active' => true,
+        ]);
+        $otherAdministrator->assignRole('admin');
+
+        $this->putJson("/api/users/{$otherAdministrator->id}", [
+            'username' => 'changed.admin',
+        ])->assertForbidden();
+
+        $this->assertDatabaseHas('users', [
+            'id' => $otherAdministrator->id,
+            'username' => 'other.admin',
+        ]);
+    }
+
     public function test_user_update_accepts_boolean_is_active(): void
     {
         $response = $this->putJson("/api/users/{$this->targetUser->id}", [

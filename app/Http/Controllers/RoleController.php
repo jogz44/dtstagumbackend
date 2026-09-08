@@ -71,6 +71,12 @@ class RoleController extends Controller
     {
         abort_unless($request->user()->is_active && $request->user()->hasAnyRole(RoleNames::adminRoles()), 403);
 
+        abort_if(
+            in_array($role->name, RoleNames::adminRoles(), true),
+            403,
+            'Administrator role permissions cannot be edited.'
+        );
+
         $validated = $request->validate([
             'permissions' => ['present', 'array'],
             'permissions.*' => ['string', Rule::exists('permissions', 'name')->where('guard_name', 'web')->whereNull('deleted_at')],

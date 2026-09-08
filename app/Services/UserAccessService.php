@@ -20,6 +20,11 @@ class UserAccessService
     public function update(User $actor, User $targetUser, array $attributes, Request $request): User
     {
         abort_unless($actor->is_active && $actor->hasAnyRole(RoleNames::adminRoles()), 403);
+        abort_if(
+            $actor->id !== $targetUser->id && $targetUser->hasAnyRole(RoleNames::adminRoles()),
+            403,
+            'Administrator accounts cannot be edited by another administrator.'
+        );
 
         return DB::transaction(function () use ($actor, $targetUser, $attributes, $request) {
             $newRole = array_key_exists('role_id', $attributes)

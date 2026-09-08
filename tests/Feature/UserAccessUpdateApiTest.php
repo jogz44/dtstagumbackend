@@ -286,9 +286,8 @@ class UserAccessUpdateApiTest extends TestCase
         $this->assertTrue($this->adminUser->is_active);
     }
 
-    public function test_last_admin_deactivation_or_demotion_is_blocked(): void
+    public function test_administrator_cannot_demote_another_administrator(): void
     {
-        // Second admin to avoid self-deactivation rule
         $admin2 = User::create([
             'username' => 'admin2',
             'password' => bcrypt('password'),
@@ -305,16 +304,8 @@ class UserAccessUpdateApiTest extends TestCase
             'is_active' => true,
         ]);
 
-        // Attempting to demote when admin2 + adminUser exist is fine if > 1 admin, but if adminUser is sole admin it fails
-        $response->assertStatus(200);
-
-        // Now admin2 is sole remaining admin. Try demoting admin2 via admin2? Self-demotion or sole admin demotion
-        $response2 = $this->patchJson("/api/users/{$admin2->id}/access", [
-            'role_id' => (string) $this->receiverRole->id,
-            'is_active' => true,
-        ]);
-
-        $response2->assertStatus(422);
+        $response->assertForbidden();
+        $this->assertTrue($this->adminUser->fresh()->hasRole('admin'));
     }
 
     public function test_access_update_records_audits(): void
@@ -351,6 +342,24 @@ class UserAccessUpdateApiTest extends TestCase
             'id' => $this->targetUser->id,
             'username' => 'jdoeapo',
         ]);
+    }
+
+    public function test_administrator_cannot_update_another_administrator_access(): void
+    {
+        $admin2 = User::create([
+            'username' => 'admin2',
+            'password' => bcrypt('password'),
+            'first_name' => 'Second',
+            'last_name' => 'Admin',
+            'is_active' => true,
+        ]);
+        $admin2->assignRole('admin');
+
+        $this->patchJson("/api/users/{$admin2->id}/access", [
+            'role_id' => (string) $this->receiverRole->id,
+        ])->assertForbidden();
+
+        $this->assertTrue($admin2->fresh()->hasRole('admin'));
     }
 
     public function test_duplicate_username_returns_validation_error(): void

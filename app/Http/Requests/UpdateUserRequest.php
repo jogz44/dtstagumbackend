@@ -57,7 +57,15 @@ class UpdateUserRequest extends FormRequest
             return false;
         }
 
-        return $actor->id === $target->id || $this->canManageUsers($actor);
+        if ($actor->id === $target->id) {
+            return true;
+        }
+
+        if ($target->hasAnyRole(RoleNames::adminRoles())) {
+            return false;
+        }
+
+        return $this->canManageUsers($actor);
     }
 
     public function rules(): array
