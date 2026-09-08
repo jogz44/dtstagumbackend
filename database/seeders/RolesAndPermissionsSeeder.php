@@ -22,7 +22,7 @@ class RolesAndPermissionsSeeder extends Seeder
             ['name' => 'can_share_document', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Share a document'],
             ['name' => 'can_transfer_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Transfer a document'],
             ['name' => 'can_receive_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Only receive this type of document'],
-            ['name' => 'can_register_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Register a document'],
+            ['name' => 'can_add_documents', 'guard_name' => 'web', 'group_name' => 'Documents', 'description' => 'Register a document'],
             ['name' => 'users.manage', 'guard_name' => 'web', 'group_name' => 'Users', 'description' => 'Manage user accounts'],
         ];
 
@@ -43,6 +43,6 @@ class RolesAndPermissionsSeeder extends Seeder
 
         $roleModels['admin']->syncPermissions(array_column($permissions, 'name'));
         $roleModels['supervisor']->syncPermissions(array_values(array_diff(array_column($permissions, 'name'), ['users.manage', 'users.permissions.manage'])));
-        $roleModels['receiver']->syncPermissions(['can_receive_documents', 'can_register_documents']);
+        $roleModels['receiver']->syncPermissions(['can_receive_documents', 'can_add_documents']);
     }
 }

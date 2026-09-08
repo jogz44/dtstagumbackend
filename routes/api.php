@@ -146,7 +146,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/documents/unopened-count', [DocumentController::class, 'unopenedCount']);
         Route::get('/documents/{document}', [DocumentController::class, 'show']);
         Route::post('/documents/{document}/acknowledge', [DocumentController::class, 'acknowledge']);
-        Route::post('/documents', [DocumentController::class, 'store'])->middleware('can:can_register_documents');
+        Route::post('/documents', [DocumentController::class, 'store'])->middleware('can:can_add_documents');
         Route::post('/documents/send-tracking-email', [DocumentEmailController::class, 'sendTrackingEmail']);
         Route::get('/attachments/{attachment}', [DocumentController::class, 'showAttachment']);
         Route::get('/documents/{document}/timeline', [DocumentController::class, 'timeline']);
@@ -160,7 +160,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/receive-by-code', [DocumentController::class, 'receiveByCode'])->middleware('can:can_receive_documents');
         Route::post('/documents/{document}/release', [DocumentController::class, 'release'])->middleware('can:can_release_document');
         Route::post('/documents/{document}/archive', [DocumentController::class, 'archive'])->middleware('can:can_archive_document');
-        Route::post('/documents/{document}/share', [DocumentController::class, 'share'])->middleware('can:can_share_document');
+        Route::post('/documents/{document}/share', [DocumentController::class, 'share'])->middleware('can:can_edit_document');
         Route::post('/documents/{document}/complete', [DocumentController::class, 'complete'])->middleware('can:can_complete_document');
         Route::post('/documents/{document}/return', [DocumentController::class, 'returnDocument'])->middleware('can:can_return_document');
         Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve'])->middleware('can:can_archive_document');
