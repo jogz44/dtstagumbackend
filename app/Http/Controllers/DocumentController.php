@@ -47,7 +47,42 @@ class DocumentController extends Controller
         ]);
 
         $searchParam = $request->query('search') ?? $request->query('q');
-        if (! empty($searchParam)) {
+        $scopeParam = $request->query('scope') ?? $request->query('filter');
+        $isTransmittedOrReceived = in_array($scopeParam, ['transmitted_or_received', 'office_history', 'office_activity', 'received'], true)
+            || in_array($tab, ['transmitted_or_received', 'office_history', 'office_activity'], true);
+
+        if ($isTransmittedOrReceived) {
+            $query->where(function ($qConf) use ($user) {
+                $canSeeConfidential = $user->can('documents.view_confidential')
+                    || $user->hasAnyRole(RoleNames::adminRoles())
+                    || $user->username === 'admin';
+                if (! $canSeeConfidential) {
+                    $qConf->where('is_confidential', false)
+                        ->orWhere('created_by', $user->id)
+                        ->orWhere('assigned_user', $user->full_name)
+                        ->orWhere('assigned_user', (string) $user->id);
+                }
+            })->where('status', '!=', 'archived');
+
+            $query->forReceivedOrTransmitted($user);
+
+            if (! empty($searchParam)) {
+                $searchTrimmed = trim($searchParam);
+                $query->where(function ($qSearch) use ($searchTrimmed) {
+                    $qSearch->where('tracking_number', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('description', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('origin_sender', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('sender_name', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('issued_by', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('office_assignment', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('division_assignment', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('document_type', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('assigned_user', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('remarks', 'LIKE', "%{$searchTrimmed}%")
+                        ->orWhere('status', 'LIKE', "%{$searchTrimmed}%");
+                });
+            }
+        } elseif (! empty($searchParam)) {
             $searchTrimmed = trim($searchParam);
             $officeName = $user->office?->name;
             $officeNames = Document::getSimilarOfficeNames($officeName);
@@ -77,20 +112,20 @@ class DocumentController extends Controller
                       || $roleName === 'supervisor'
                       || $user->hasRole('supervisor');
 
-                  $qUserScope->where('created_by', $user->id)
-                      ->orWhere('assigned_user', (string) $user->id)
-                      ->orWhere('assigned_user', $user->full_name)
-                      ->orWhere('assigned_user', $user->username)
-                      ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
-                          $qAck->where('user_id', $user->id);
-                      })
-                      ->orWhereHas('histories', function ($qH) use ($user) {
-                          $qH->where('performed_by', $user->id)
-                             ->orWhere('from_user_id', $user->id)
-                             ->orWhere('to_user_id', $user->id);
-                      });
-
                   if ($isElevatedUser) {
+                      $qUserScope->where('created_by', $user->id)
+                          ->orWhere('assigned_user', (string) $user->id)
+                          ->orWhere('assigned_user', $user->full_name)
+                          ->orWhere('assigned_user', $user->username)
+                          ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                              $qAck->where('user_id', $user->id);
+                          })
+                          ->orWhereHas('histories', function ($qH) use ($user) {
+                              $qH->where('performed_by', $user->id)
+                                 ->orWhere('from_user_id', $user->id)
+                                 ->orWhere('to_user_id', $user->id);
+                          });
+
                       $qUserScope->orWhereHas('histories', function ($qH) use ($officeNames) {
                           if (! empty($officeNames)) {
                               $qH->whereIn('from_office', $officeNames)
@@ -107,6 +142,33 @@ class DocumentController extends Controller
                           $qUserScope->orWhereIn('office_assignment', $officeNames)
                              ->orWhereIn('origin_sender', $officeNames);
                       }
+                  } else {
+                      // Regular receiver: directly assigned (current holder), or created/involved if still in user's office or unassigned
+                      $qUserScope->where(function ($qHolder) use ($user) {
+                          $qHolder->where('assigned_user', (string) $user->id)
+                              ->orWhere('assigned_user', $user->full_name)
+                              ->orWhere('assigned_user', $user->username);
+                      })->orWhere(function ($qInvolved) use ($user, $officeNames) {
+                          $qInvolved->where(function ($qSub) use ($user) {
+                              $qSub->where('created_by', $user->id)
+                                  ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                                      $qAck->where('user_id', $user->id);
+                                  })
+                                  ->orWhereHas('histories', function ($qH) use ($user) {
+                                      $qH->where('performed_by', $user->id)
+                                         ->orWhere('from_user_id', $user->id)
+                                         ->orWhere('to_user_id', $user->id);
+                                  });
+                          });
+
+                          if (! empty($officeNames)) {
+                              $qInvolved->where(function ($qOff) use ($officeNames) {
+                                  $qOff->whereNull('office_assignment')
+                                       ->orWhere('office_assignment', '')
+                                       ->orWhereIn('office_assignment', $officeNames);
+                              });
+                          }
+                      });
                   }
               })
               ->where(function ($qSearch) use ($searchTrimmed) {

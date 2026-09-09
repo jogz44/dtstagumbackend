@@ -1,6 +1,6 @@
 Hi {{ $recipientName }},
 
-Here are the tracking details and guest tracking link for your document:
+Here are the tracking details and tracking link for your document:
 
 Subject / Particular: {{ $particular }}
 Tracking Number: {{ $trackingNumber }}
@@ -13,8 +13,10 @@ Due Date: {{ $dueDate }}
 Date Sent: {{ $dateSent }}
 
 ========================================
-📌 TRACK DOCUMENT AS GUEST:
+TRACK DOCUMENT:
+Scan the QR code in the email or follow this link:
 {{ $guestTrackUrl }}
 ========================================
 
-A QR code image (QR-{{ $trackingNumber }}.png) is also attached to this email. You can scan it anytime to track this document in real time.
+--
+Tagum Document Track and Trace System

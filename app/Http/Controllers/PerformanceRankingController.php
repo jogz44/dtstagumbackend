@@ -34,6 +34,7 @@ class PerformanceRankingController extends Controller
     public function summary(PerformanceQueryRequest $request, PerformanceCalculationService $calculations): JsonResponse
     {
         [$periodStart, $periodEnd] = $this->period($request);
+        $officeId = $this->resolveOfficeId($request);
         $metrics = $this->rankedUsers($request, $calculations, $periodStart, $periodEnd);
         $topPerformer = $metrics->first();
 
@@ -49,7 +50,7 @@ class PerformanceRankingController extends Controller
 
         return response()->json([
             'data' => [
-                'total_completed_documents' => ($allMetrics = $calculations->forAll($periodStart, $periodEnd))['documents_completed'],
+                'total_completed_documents' => ($allMetrics = $calculations->forAll($periodStart, $periodEnd, $officeId))['documents_completed'],
                 'average_processing_seconds' => $allMetrics['average_processing_seconds'],
                 'overdue_completion_count' => $allMetrics['overdue_completed_count'],
                 'top_division' => $topDivision,
@@ -127,9 +128,23 @@ class PerformanceRankingController extends Controller
         return [$start, $end];
     }
 
-    private function rankedUsers(PerformanceQueryRequest $request, PerformanceCalculationService $calculations, Carbon $periodStart, Carbon $periodEnd)
+    private function resolveOfficeId(PerformanceQueryRequest $request): ?string
     {
         $officeId = $request->input('office_id');
+        if ($officeId === 'all') {
+            return null;
+        }
+
+        if ($officeId) {
+            return (string) $officeId;
+        }
+
+        return $request->user()?->office_id;
+    }
+
+    private function rankedUsers(PerformanceQueryRequest $request, PerformanceCalculationService $calculations, Carbon $periodStart, Carbon $periodEnd)
+    {
+        $officeId = $this->resolveOfficeId($request);
 
         $users = User::query()
             ->with('division')

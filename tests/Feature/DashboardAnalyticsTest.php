@@ -158,6 +158,29 @@ class DashboardAnalyticsTest extends TestCase
             ->assertJsonPath('yearly_overview.received_today', 1);
     }
 
+    /** 4b. Transmitted document still counts for received_today and received_total */
+    public function test_transmitted_document_still_counts_for_received_today_and_received_total(): void
+    {
+        Sanctum::actingAs($this->adminUser, ['*']);
+
+        $doc = $this->createTestDocument([
+            'received_at' => Carbon::now('Asia/Manila'),
+            'status' => 'transferred',
+            'office_assignment' => 'Other Office',
+        ]);
+
+        \App\Models\DocumentHistory::record($doc, 'TRANSFERRED', $this->adminUser, [
+            'from_office' => $this->adminUser->office?->name ?? 'HR Division',
+            'to_office' => 'Other Office',
+        ]);
+
+        $response = $this->getJson('/api/dashboard/analytics');
+
+        $response->assertStatus(200)
+            ->assertJsonPath('yearly_overview.received_today', 1)
+            ->assertJsonPath('yearly_overview.received_total', 1);
+    }
+
     /** 5. Receipt yesterday does not increment Received Today count */
     public function test_receipt_yesterday_does_not_increment_received_today(): void
     {

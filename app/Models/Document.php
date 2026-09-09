@@ -198,23 +198,40 @@ class Document extends Model
                         });
                     }
                 } else {
-                    // Regular receiver: ONLY see added (created_by), received (assigned/acknowledged), or transferred
-                    $q->where('created_by', $user->id)
-                      ->orWhere('assigned_user', (string) $user->id)
-                      ->orWhere('assigned_user', $user->full_name)
-                      ->orWhere('assigned_user', $user->username)
-                      ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
-                          $qAck->whereNotNull('acknowledged_at')
-                               ->where(function ($qUser) use ($user) {
-                                   $qUser->where('user_id', $user->id)
-                                         ->orWhere('assigned_name', $user->full_name);
-                               });
-                      })
-                      ->orWhereHas('histories', function ($qHist) use ($user) {
-                          $qHist->where('performed_by', $user->id)
-                                ->orWhere('to_user_id', $user->id)
-                                ->orWhere('from_user_id', $user->id);
-                      });
+                    // Regular receiver:
+                    // 1. Directly assigned to user (user is the current holder)
+                    $q->where(function ($qHolder) use ($user) {
+                        $qHolder->where('assigned_user', (string) $user->id)
+                                ->orWhere('assigned_user', $user->full_name)
+                                ->orWhere('assigned_user', $user->username);
+                    });
+
+                    // 2. OR involved (created, acknowledged, or in history), PROVIDED the document is still in user's office or unassigned
+                    $q->orWhere(function ($qInvolved) use ($user, $officeNames) {
+                        $qInvolved->where(function ($qSub) use ($user) {
+                            $qSub->where('created_by', $user->id)
+                                 ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                                     $qAck->whereNotNull('acknowledged_at')
+                                          ->where(function ($qUser) use ($user) {
+                                              $qUser->where('user_id', $user->id)
+                                                    ->orWhere('assigned_name', $user->full_name);
+                                          });
+                                 })
+                                 ->orWhereHas('histories', function ($qHist) use ($user) {
+                                     $qHist->where('performed_by', $user->id)
+                                           ->orWhere('to_user_id', $user->id)
+                                           ->orWhere('from_user_id', $user->id);
+                                 });
+                        });
+
+                        if (! empty($officeNames)) {
+                            $qInvolved->where(function ($qOff) use ($officeNames) {
+                                $qOff->whereNull('office_assignment')
+                                     ->orWhere('office_assignment', '')
+                                     ->orWhereIn('office_assignment', $officeNames);
+                            });
+                        }
+                    });
                 }
             });
     }
@@ -338,6 +355,43 @@ class Document extends Model
                                    ->orWhere('from_user_id', $user->id);
                          });
                   });
+            }
+        });
+    }
+
+    public function scopeForReceivedOrTransmitted($query, User $user)
+    {
+        $officeName = $user->office?->name;
+        $officeNames = self::getSimilarOfficeNames($officeName);
+
+        return $query->where(function ($q) use ($officeNames, $user) {
+            if (! empty($officeNames)) {
+                $q->whereIn('office_assignment', $officeNames)
+                  ->orWhereIn('origin_sender', $officeNames)
+                  ->orWhereHas('histories', function ($qH) use ($officeNames, $user) {
+                      $qH->whereIn('from_office', $officeNames)
+                         ->orWhereIn('to_office', $officeNames)
+                         ->orWhere('performed_by', $user->id)
+                         ->orWhere('from_user_id', $user->id)
+                         ->orWhere('to_user_id', $user->id);
+                  })
+                  ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                      $qAck->where('user_id', $user->id);
+                  });
+
+                if ($user->office_id) {
+                    $q->orWhereHas('creator', function ($qCreator) use ($user) {
+                        $qCreator->where('office_id', $user->office_id);
+                    });
+                }
+            } elseif ($user->office_id) {
+                $q->whereHas('creator', function ($qCreator) use ($user) {
+                    $qCreator->where('office_id', $user->office_id);
+                });
+            } else {
+                $q->where('created_by', $user->id)
+                  ->orWhere('assigned_user', $user->full_name)
+                  ->orWhere('assigned_user', (string) $user->id);
             }
         });
     }

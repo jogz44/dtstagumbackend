@@ -478,8 +478,11 @@ class DashboardAnalyticsService
         $officeQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
         $officeQuery = $this->applyOfficeScope($officeQuery, $viewer);
 
-        // Total Received This Year - office-wide aggregate
-        $receivedTotal = (clone $officeQuery)
+        $officeReceivedQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+        $officeReceivedQuery = $this->applyReceivedOfficeScope($officeReceivedQuery, $viewer);
+
+        // Total Received This Year - office-wide aggregate (includes transmitted documents)
+        $receivedTotal = (clone $officeReceivedQuery)
             ->where(function ($q) use ($yearStart, $yearEnd) {
                 $q->where(function ($sub) use ($yearStart, $yearEnd) {
                     $sub->whereNotNull('received_at')
@@ -525,8 +528,8 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Received Today - office-wide aggregate
-        $receivedToday = (clone $officeQuery)
+        // Received Today - office-wide aggregate (includes transmitted documents)
+        $receivedToday = (clone $officeReceivedQuery)
             ->where(function ($q) use ($todayStart, $todayEnd) {
                 $q->where(function ($sub) use ($todayStart, $todayEnd) {
                     $sub->whereNotNull('received_at')
@@ -548,6 +551,11 @@ class DashboardAnalyticsService
             'completed_total' => $completedTotal,
             'received_today' => $receivedToday,
         ];
+    }
+
+    public function applyReceivedOfficeScope($query, User $user)
+    {
+        return $query->forReceivedOrTransmitted($user);
     }
 
     public function applyOfficeScope($query, User $user)
@@ -584,12 +592,32 @@ class DashboardAnalyticsService
             return $this->applyOfficeScope($query, $user);
         } else {
             // Receiver / Standard user: strictly personal stats for pending and overdue
-            return $query->where(function ($q) use ($user) {
-                $q->where('created_by', $user->id)
-                  ->orWhere('assigned_user', $user->full_name)
-                  ->orWhere('assigned_user', $user->id)
-                  ->orWhere('assigned_user', $user->username)
-                  ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $user->id)->orWhere('assigned_name', $user->full_name));
+            $officeName = $user->office?->name;
+            $officeNames = Document::getSimilarOfficeNames($officeName);
+
+            return $query->where(function ($q) use ($user, $officeNames) {
+                // Directly assigned to the user (current holder)
+                $q->where(function ($qHolder) use ($user) {
+                    $qHolder->where('assigned_user', $user->full_name)
+                            ->orWhere('assigned_user', (string) $user->id)
+                            ->orWhere('assigned_user', $user->username);
+                });
+
+                // Or created/acknowledged by user, provided it is still in user's office or unassigned
+                $q->orWhere(function ($qInvolved) use ($user, $officeNames) {
+                    $qInvolved->where(function ($qSub) use ($user) {
+                        $qSub->where('created_by', $user->id)
+                             ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $user->id)->orWhere('assigned_name', $user->full_name));
+                    });
+
+                    if (! empty($officeNames)) {
+                        $qInvolved->where(function ($qOff) use ($officeNames) {
+                            $qOff->whereNull('office_assignment')
+                                 ->orWhere('office_assignment', '')
+                                 ->orWhereIn('office_assignment', $officeNames);
+                        });
+                    }
+                });
             });
         }
     }

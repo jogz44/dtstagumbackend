@@ -19,6 +19,18 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        if (!ini_get('openssl.cafile')) {
+            foreach ([
+                'C:\\laragon\\etc\\ssl\\cacert.pem',
+                base_path('cacert.pem'),
+            ] as $ca) {
+                if (file_exists($ca)) {
+                    ini_set('openssl.cafile', $ca);
+                    break;
+                }
+            }
+        }
+
         // Spatie delegates Gate checks to User::hasPermissionTo, including overrides.
     }
 }

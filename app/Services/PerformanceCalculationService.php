@@ -25,14 +25,22 @@ class PerformanceCalculationService
     /**
      * @return array{documents_completed:int,average_processing_seconds:float|null,on_time_rate:float|null,overdue_completed_count:int,productivity_completed_count:int}
      */
-    public function forAll(Carbon $periodStart, Carbon $periodEnd): array
+    public function forAll(Carbon $periodStart, Carbon $periodEnd, ?string $officeId = null): array
     {
-        $documents = Document::query()
+        $query = Document::query()
             ->whereNotNull('completed_by_user_id')
             ->whereNotNull('completed_at')
             ->where('status', 'completed')
-            ->whereBetween('completed_at', [$periodStart, $periodEnd])
-            ->get(['received_at', 'due_at', 'completed_at']);
+            ->whereBetween('completed_at', [$periodStart, $periodEnd]);
+
+        if ($officeId) {
+            $query->where(function ($q) use ($officeId) {
+                $q->whereHas('completedBy', fn ($qUser) => $qUser->where('office_id', $officeId))
+                  ->orWhereHas('creator', fn ($qCreator) => $qCreator->where('office_id', $officeId));
+            });
+        }
+
+        $documents = $query->get(['received_at', 'due_at', 'completed_at']);
 
         return $this->metricsFromDocuments($documents);
     }

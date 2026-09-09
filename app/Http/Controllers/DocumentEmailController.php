@@ -23,7 +23,7 @@ class DocumentEmailController extends Controller
             'origin_sender'   => 'nullable|string|max:255',
             'due_date'        => 'nullable|string|max:100',
             'date_sent'       => 'nullable|string|max:100',
-            'guest_track_url' => 'required|url',
+            'guest_track_url' => 'required|string|max:1000',
             'qr_code_base64'  => 'nullable|string',
         ]);
 
@@ -71,7 +71,7 @@ class DocumentEmailController extends Controller
     /**
      * Resolve the QR code image path.
      * Prefers the base64 PNG sent from the client canvas (exact high-res render),
-     * otherwise generates via GD fallback.
+     * then attempts online QR image service, and falls back to GD.
      */
     private function resolveQrImage(string $url, string $trackingNumber, ?string $base64 = null): string
     {
@@ -90,7 +90,23 @@ class DocumentEmailController extends Controller
             }
         }
 
-        // 2. Fallback: Draw placeholder QR box using GD if installed
+        // 2. Fallback: Online QR image generator
+        try {
+            $qrApiUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=' . urlencode($url);
+            $ctx = stream_context_create([
+                'http' => ['timeout' => 2],
+                'ssl'  => ['verify_peer' => false, 'verify_peer_name' => false],
+            ]);
+            $content = @file_get_contents($qrApiUrl, false, $ctx);
+            if ($content !== false && strlen($content) > 100) {
+                file_put_contents($tmpPath, $content);
+                return $tmpPath;
+            }
+        } catch (\Throwable $e) {
+            // Proceed to GD fallback
+        }
+
+        // 3. Fallback: Draw placeholder box using GD if installed
         if (extension_loaded('gd')) {
             $img = imagecreatetruecolor(260, 260);
             $white = imagecolorallocate($img, 255, 255, 255);

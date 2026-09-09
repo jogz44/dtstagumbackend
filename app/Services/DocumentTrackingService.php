@@ -264,7 +264,8 @@ class DocumentTrackingService
         }
 
         return $query->where(function ($q) use ($viewer) {
-            $q->forMyDocuments($viewer);
+            $q->forMyDocuments($viewer)
+              ->orWhere(fn ($sub) => $sub->forOutgoing($viewer));
         });
     }
 

@@ -265,4 +265,45 @@ class DashboardAnalyticsApiTest extends TestCase
         $response->assertStatus(422)
             ->assertJsonValidationErrors(['date_to']);
     }
+
+    /** @test */
+    public function documents_index_with_transmitted_or_received_scope_returns_office_transmitted_and_received_documents()
+    {
+        $doc1 = $this->createTestDoc([
+            'tracking_number' => 'DOC-OFFICE-A-RECEIVED',
+            'status' => 'pending',
+            'created_by' => $this->userA->id,
+            'office_assignment' => $this->officeA->name,
+        ]);
+
+        $doc2 = $this->createTestDoc([
+            'tracking_number' => 'DOC-TRANSMITTED-TO-B',
+            'status' => 'transferred',
+            'created_by' => $this->userA->id,
+            'office_assignment' => $this->officeB->name,
+        ]);
+        $doc2->histories()->create([
+            'action' => 'TRANSFERRED',
+            'from_office' => $this->officeA->name,
+            'to_office' => $this->officeB->name,
+            'from_user_id' => $this->userA->id,
+            'performed_by' => $this->userA->id,
+        ]);
+
+        $doc3 = $this->createTestDoc([
+            'tracking_number' => 'DOC-OFFICE-B-ONLY',
+            'status' => 'pending',
+            'created_by' => $this->userB->id,
+            'office_assignment' => $this->officeB->name,
+        ]);
+
+        Sanctum::actingAs($this->admin);
+        $response = $this->getJson('/api/documents?scope=transmitted_or_received');
+        $response->assertOk();
+
+        $trackingNumbers = collect($response->json('data'))->pluck('tracking_number')->toArray();
+        $this->assertContains('DOC-OFFICE-A-RECEIVED', $trackingNumbers);
+        $this->assertContains('DOC-TRANSMITTED-TO-B', $trackingNumbers);
+        $this->assertNotContains('DOC-OFFICE-B-ONLY', $trackingNumbers);
+    }
 }

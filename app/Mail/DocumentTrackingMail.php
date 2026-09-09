@@ -29,7 +29,7 @@ class DocumentTrackingMail extends Mailable
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "Document Tracking: {$this->particular} ({$this->trackingNumber})",
+            subject: "Tagum Document Track and Trace: {$this->particular} ({$this->trackingNumber})",
         );
     }
 
@@ -43,14 +43,7 @@ class DocumentTrackingMail extends Mailable
 
     public function attachments(): array
     {
-        if ($this->qrImagePath && file_exists($this->qrImagePath)) {
-            return [
-                Attachment::fromPath($this->qrImagePath)
-                    ->as("QR-{$this->trackingNumber}.png")
-                    ->withMime('image/png'),
-            ];
-        }
-
+        // No separate attachments as requested; QR code is embedded inline in the HTML email body
         return [];
     }
 }
