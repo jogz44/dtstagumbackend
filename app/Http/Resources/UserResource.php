@@ -53,7 +53,7 @@ class UserResource extends JsonResource
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),
             'pmis_employee' => $this->whenLoaded('pmisEmployee'),
-            'effective_permissions' => collect($permissionMatrix)->where('allowed', true)->pluck('name')->values()->all(),
+            'effective_permissions' => app(EffectivePermissionService::class)->names($this->resource),
             'permission_matrix' => $permissionMatrix,
             'role_id' => $role?->id,
             'role' => $role ? [
@@ -67,6 +67,7 @@ class UserResource extends JsonResource
             'roles' => $this->relationLoaded('roles') ? $this->roles->pluck('name')->values() : [],
             'permissions' => $this->relationLoaded('permissions')
                 ? $this->permissions
+                    ->reject(fn ($permission) => in_array($permission->name, EffectivePermissionService::HIDDEN_MANAGEMENT_PERMISSIONS, true))
                     ->sortBy([['group_name', 'asc'], ['name', 'asc']])
                     ->values()
                     ->map(fn ($permission) => [
