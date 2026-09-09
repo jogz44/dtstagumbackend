@@ -119,6 +119,8 @@ class EffectivePermissionsApiTest extends TestCase
         $matrix = collect($response->json('data.permission_matrix'))->keyBy('name');
         $this->assertSame('deny', $matrix['reports.export']['override']);
         $this->assertTrue($matrix['reports.export']['role_default']);
+        $this->assertNotContains('can_view_confidential', $matrix->keys()->all());
+        $this->assertContains('can_view_confidential', $response->json('data.effective_permissions'));
     }
 
     public function test_administrator_management_access_and_last_admin_are_protected(): void

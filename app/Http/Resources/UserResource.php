@@ -53,7 +53,7 @@ class UserResource extends JsonResource
             'office' => $this->whenLoaded('office'),
             'division' => $this->whenLoaded('division'),
             'pmis_employee' => $this->whenLoaded('pmisEmployee'),
-            'effective_permissions' => collect($permissionMatrix)->where('allowed', true)->pluck('name')->values()->all(),
+            'effective_permissions' => app(EffectivePermissionService::class)->names($this->resource),
             'permission_matrix' => $permissionMatrix,
             'role_id' => $role?->id,
             'role' => $role ? [

@@ -23,7 +23,7 @@ class UserAccessResource extends JsonResource
             'last_name' => $this->last_name,
             'office' => $this->office?->name ?? $this->pmisEmployee?->office,
             'division' => $this->division?->name ?? $this->pmisEmployee?->division,
-            'effective_permissions' => collect($permissionMatrix)->where('allowed', true)->pluck('name')->values()->all(),
+            'effective_permissions' => app(EffectivePermissionService::class)->names($this->resource),
             'permission_matrix' => $permissionMatrix,
             'role_id' => $role?->id,
             'role' => $role?->name,

@@ -22,7 +22,26 @@ class EffectivePermissionService
 
     public function names(User $user): array
     {
-        return collect($this->matrix($user))->where('allowed', true)->pluck('name')->all();
+        if (! $user->is_active || $user->trashed()) {
+            return [];
+        }
+
+        $user->loadMissing(['permissionOverrides', 'permissions']);
+        $defaults = $this->defaults($user);
+        $direct = $user->permissions->pluck('name')->all();
+        $overrides = $user->permissionOverrides->keyBy('permission_name');
+
+        return Permission::query()
+            ->where('guard_name', 'web')
+            ->pluck('name')
+            ->filter(function (string $permission) use ($defaults, $direct, $overrides): bool {
+                $override = $overrides->get($permission)?->effect;
+
+                return $override === 'grant'
+                    || ($override === null && (in_array($permission, $direct, true) || in_array($permission, $defaults, true)));
+            })
+            ->values()
+            ->all();
     }
 
     public function allows(User $user, string $permission): bool
