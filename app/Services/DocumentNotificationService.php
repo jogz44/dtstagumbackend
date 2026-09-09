@@ -23,6 +23,10 @@ class DocumentNotificationService
         User $receiver,
         ?User $sender = null
     ): ?Notification {
+        if ($sender && $receiver->id === $sender->id) {
+            return null;
+        }
+
         $key = "doc:{$document->id}:force:user:{$receiver->id}:" . now()->timestamp;
         $senderName = $sender?->full_name ?: $sender?->username ?: 'Administrator';
         $trackingNo = $document->tracking_number;
@@ -51,6 +55,16 @@ class DocumentNotificationService
         ?User $sender = null,
         ?string $assignmentEventId = null,
     ): ?Notification {
+        // Do not notify if receiver is the sender (self assignment / self transmission)
+        if ($sender && $receiver->id === $sender->id) {
+            return null;
+        }
+
+        // Do not notify if receiver is the document creator and document entry / initial self-assignment occurs
+        if ($receiver->id === $document->created_by && ($sender === null || $sender->id === $document->created_by)) {
+            return null;
+        }
+
         $eventKey = $assignmentEventId ?: 'legacy';
         $key = "doc:{$document->id}:assignment:{$eventKey}:user:{$receiver->id}";
 
@@ -74,11 +88,46 @@ class DocumentNotificationService
     }
 
     /**
-     * Notify document originator/creator when a document is completed/approved (disabled per notification policy).
+     * Notify user who started/received the document first when it is completed.
      */
     public function notifyApproved(Document $document, User $actor): ?Notification
     {
-        return null;
+        $starterUserId = $document->created_by;
+
+        if (! $starterUserId) {
+            $earliestHistory = \App\Models\DocumentHistory::where('document_id', $document->id)
+                ->whereNotNull('user_id')
+                ->orderBy('created_at', 'asc')
+                ->first();
+            $starterUserId = $earliestHistory?->user_id;
+        }
+
+        if (! $starterUserId) {
+            return null;
+        }
+
+        // Do not self-notify if the actor who completed the document is the starter user themselves
+        if ($starterUserId === $actor->id) {
+            return null;
+        }
+
+        $key = "doc:{$document->id}:completed:user:{$starterUserId}";
+        $trackingNo = $document->tracking_number;
+        $actorName = $actor->full_name ?: $actor->username ?: 'A user';
+
+        return $this->createIfNotExists([
+            'user_id' => $starterUserId,
+            'document_id' => $document->id,
+            'type' => 'document.completed',
+            'title' => 'Document completed',
+            'message' => "{$trackingNo} that started with you was marked as completed by {$actorName}.",
+            'notification_key' => $key,
+            'metadata' => [
+                'tracking_number' => $trackingNo,
+                'completed_by' => $actor->id,
+                'completed_by_name' => $actorName,
+            ],
+        ]);
     }
 
     /**
@@ -139,7 +188,7 @@ class DocumentNotificationService
         return Notification::query()
             ->forUser($user->id)
             ->where('document_id', $document->id)
-            ->whereIn('type', ['document.received', 'document.force_notify', 'document.due_tomorrow', 'document.due_soon'])
+            ->whereIn('type', ['document.received', 'document.force_notify', 'document.due_tomorrow', 'document.due_soon', 'document.completed', 'document.approved'])
             ->unread()
             ->update(['read_at' => now()]);
     }

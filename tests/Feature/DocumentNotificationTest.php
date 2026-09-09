@@ -219,6 +219,64 @@ class DocumentNotificationTest extends TestCase
             ->count());
     }
 
+    public function test_creator_does_not_receive_notification_on_self_entry_or_self_assignment(): void
+    {
+        $creator = $this->createUser('creator_user', 'Creator', 'User');
+        $document = Document::create([
+            'id' => (string) Str::uuid(),
+            'tracking_number' => 'DOC-SELF-001',
+            'created_by' => $creator->id,
+            'origin_sender' => 'Creator Office',
+            'sender_name' => $creator->full_name,
+            'document_type' => 'Memo',
+            'priority_level' => 'Normal',
+            'description' => 'Self entry test',
+            'status' => 'registered',
+        ]);
+
+        $notificationService = app(DocumentNotificationService::class);
+        $notif = $notificationService->notifyReceived($document, $creator, $creator);
+
+        $this->assertNull($notif);
+        $this->assertDatabaseMissing('notifications', [
+            'user_id' => $creator->id,
+            'document_id' => $document->id,
+        ]);
+    }
+
+    public function test_initial_starter_notified_when_document_completed_by_other_user(): void
+    {
+        $starter = $this->createUser('starter_user', 'Starter', 'User');
+        $completer = $this->createUser('completer_user', 'Completer', 'User');
+
+        $document = Document::create([
+            'id' => (string) Str::uuid(),
+            'tracking_number' => 'DOC-COMPLETE-001',
+            'created_by' => $starter->id,
+            'origin_sender' => 'Starter Office',
+            'sender_name' => $starter->full_name,
+            'document_type' => 'Memo',
+            'priority_level' => 'Normal',
+            'description' => 'Completion notification test',
+            'status' => 'processing',
+        ]);
+
+        $completer->givePermissionTo(Permission::findOrCreate('can_complete_document', 'web'));
+        Sanctum::actingAs($completer);
+
+        $response = $this->postJson("/api/documents/{$document->id}/complete", [
+            'remarks' => 'All done.',
+        ]);
+
+        $response->assertOk();
+
+        $this->assertDatabaseHas('notifications', [
+            'user_id' => $starter->id,
+            'document_id' => $document->id,
+            'type' => 'document.completed',
+        ]);
+    }
+
     protected function createUser(string $username, string $firstName, string $lastName): User
     {
         return User::create([

@@ -16,11 +16,11 @@ class NotificationController extends Controller
      */
     protected function scopeAllowedNotifications($query)
     {
-        $allowedTypes = ['document.force_notify', 'document.received', 'document.due_tomorrow', 'document.due_soon'];
+        $allowedTypes = ['document.force_notify', 'document.received', 'document.due_tomorrow', 'document.due_soon', 'document.completed', 'document.approved'];
 
         return $query->whereIn('type', $allowedTypes)
             ->where(function ($q) {
-                $q->whereIn('type', ['document.force_notify', 'document.received', 'document.due_tomorrow'])
+                $q->whereIn('type', ['document.force_notify', 'document.received', 'document.due_tomorrow', 'document.completed', 'document.approved'])
                   ->orWhere(function ($sub) {
                       $sub->where('type', 'document.due_soon')
                           ->where(function ($inner) {

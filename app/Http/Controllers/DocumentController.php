@@ -1357,6 +1357,10 @@ class DocumentController extends Controller
                     ->orWhere('assigned_name', $user->full_name);
             })
             ->whereNull('acknowledged_at')
+            ->whereHas('document', function ($qDoc) use ($user) {
+                $qDoc->where('created_by', '!=', $user->id)
+                    ->whereNotIn(\Illuminate\Support\Facades\DB::raw('LOWER(status)'), \App\Support\DocumentStatuses::TERMINAL);
+            })
             ->count();
 
         return response()->json([
