@@ -7,10 +7,7 @@ use App\Models\Role;
 use App\Services\EffectivePermissionService;
 use App\Support\RoleNames;
 use Illuminate\Http\JsonResponse;
-use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
-use Illuminate\Validation\ValidationException;
 
 class RoleController extends Controller
 {
@@ -27,6 +24,7 @@ class RoleController extends Controller
             ->map(fn (Role $role) => $this->rolePayload($role));
 
         $permissions = Permission::query()
+            ->whereNotIn('name', EffectivePermissionService::HIDDEN_MANAGEMENT_PERMISSIONS)
             ->orderBy('group_name')
             ->orderBy('name')
             ->get()
@@ -67,35 +65,6 @@ class RoleController extends Controller
         return response()->json($options);
     }
 
-    public function updatePermissions(Request $request, Role $role): JsonResponse
-    {
-        abort_unless($request->user()->is_active && $request->user()->hasAnyRole(RoleNames::adminRoles()), 403);
-
-        abort_if(
-            in_array($role->name, RoleNames::adminRoles(), true),
-            403,
-            'Administrator role permissions cannot be edited.'
-        );
-
-        $validated = $request->validate([
-            'permissions' => ['present', 'array'],
-            'permissions.*' => ['string', Rule::exists('permissions', 'name')->where('guard_name', 'web')->whereNull('deleted_at')],
-        ]);
-
-        if (in_array($role->name, RoleNames::adminRoles(), true) && array_diff(EffectivePermissionService::ADMIN_PERMISSIONS, $validated['permissions'])) {
-            throw ValidationException::withMessages([
-                'permissions' => 'Administrator defaults must retain user and permission management access.',
-            ]);
-        }
-
-        $role->syncPermissions($validated['permissions']);
-        $role->load('permissions');
-
-        return response()->json([
-            'role' => $this->rolePayload($role),
-        ]);
-    }
-
     private function rolePayload(Role $role): array
     {
         return [
@@ -107,6 +76,7 @@ class RoleController extends Controller
             'is_system' => $role->is_system,
             'users_count' => $this->usersCount($role),
             'permissions' => $role->permissions
+                ->reject(fn (Permission $permission) => in_array($permission->name, EffectivePermissionService::HIDDEN_MANAGEMENT_PERMISSIONS, true))
                 ->map(fn (Permission $permission) => $this->permissionPayload($permission))
                 ->values(),
         ];

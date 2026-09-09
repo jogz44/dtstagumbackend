@@ -178,7 +178,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/organizations/users', [OrganizationController::class, 'getOfficeUsers']);
         Route::get('/roles', [RoleController::class, 'index']);
         Route::get('/roles/options', [RoleController::class, 'options']);
-        Route::put('/roles/{role}/permissions', [RoleController::class, 'updatePermissions']);
         Route::get('/barangays', [BarangayController::class, 'index']);
         Route::get('/users/statistics', [UserController::class, 'statistics']);
         Route::post('/users/username-preview', [UserController::class, 'previewUsername']);

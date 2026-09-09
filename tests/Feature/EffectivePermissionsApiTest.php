@@ -64,20 +64,20 @@ class EffectivePermissionsApiTest extends TestCase
         $this->assertDatabaseMissing('user_permission_overrides', ['user_id' => $this->supervisor->id]);
     }
 
-    public function test_role_defaults_change_inheritance_but_preserve_explicit_grants_and_denials(): void
+    public function test_role_defaults_are_immutable_and_explicit_grants_and_denials_are_preserved(): void
     {
         $this->overrides($this->supervisor, [
             ['permission_name' => 'reports.export', 'effect' => 'deny'],
             ['permission_name' => 'reports.view', 'effect' => 'grant'],
         ])->assertOk();
         $role = Role::findByName('supervisor', 'web');
-        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => ['reports.export']])->assertOk();
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => ['reports.export']])->assertNotFound();
         $this->assertTrue($this->peer->fresh()->hasPermissionTo('reports.export'));
-        $this->assertFalse($this->peer->fresh()->hasPermissionTo('reports.view'));
+        $this->assertTrue($this->peer->fresh()->hasPermissionTo('reports.view'));
         $this->assertFalse($this->supervisor->fresh()->hasPermissionTo('reports.export'));
         $this->assertTrue($this->supervisor->fresh()->hasPermissionTo('reports.view'));
-        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertOk();
-        $this->assertFalse($this->peer->fresh()->hasPermissionTo('reports.export'));
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertNotFound();
+        $this->assertTrue($this->peer->fresh()->hasPermissionTo('reports.export'));
     }
 
     public function test_non_admin_cannot_change_roles_defaults_or_overrides_even_with_management_grants(): void
@@ -89,7 +89,7 @@ class EffectivePermissionsApiTest extends TestCase
         Sanctum::actingAs($this->supervisor->fresh());
         $role = Role::findByName('receiver', 'web');
         $this->patchJson("/api/users/{$this->peer->id}/access", ['role_id' => $role->id])->assertForbidden();
-        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertForbidden();
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertNotFound();
         $this->overrides($this->peer, [])->assertForbidden();
         $this->overrides($this->supervisor, [['permission_name' => 'reports.export', 'effect' => 'grant']])->assertForbidden();
         $this->postJson('/api/users', ['role' => 'admin'])->assertForbidden();
@@ -125,17 +125,17 @@ class EffectivePermissionsApiTest extends TestCase
     {
         $this->overrides($this->admin, [['permission_name' => 'users.manage', 'effect' => 'deny']])->assertUnprocessable();
         $role = Role::findByName('admin', 'web');
-        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertForbidden();
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertNotFound();
         $this->patchJson("/api/users/{$this->admin->id}/access", ['role_id' => Role::findByName('receiver', 'web')->id])->assertUnprocessable();
         $this->overrides($this->admin, [['permission_name' => 'reports.export', 'effect' => 'deny']])->assertOk();
         $this->assertFalse($this->admin->fresh()->can('reports.export'));
     }
 
-    public function test_administrator_role_permissions_cannot_be_edited(): void
+    public function test_role_defaults_cannot_be_edited(): void
     {
         $role = Role::findByName('admin', 'web');
 
-        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertForbidden();
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertNotFound();
     }
 
     public function test_username_does_not_confer_administrator_privileges(): void
@@ -144,7 +144,7 @@ class EffectivePermissionsApiTest extends TestCase
         Sanctum::actingAs($user);
         $this->overrides($this->peer, [])->assertForbidden();
         $role = Role::findByName('receiver', 'web');
-        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertForbidden();
+        $this->putJson("/api/roles/{$role->id}/permissions", ['permissions' => []])->assertNotFound();
     }
 
     public function test_unknown_and_duplicate_overrides_are_rejected(): void

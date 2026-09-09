@@ -67,6 +67,7 @@ class UserResource extends JsonResource
             'roles' => $this->relationLoaded('roles') ? $this->roles->pluck('name')->values() : [],
             'permissions' => $this->relationLoaded('permissions')
                 ? $this->permissions
+                    ->reject(fn ($permission) => in_array($permission->name, EffectivePermissionService::HIDDEN_MANAGEMENT_PERMISSIONS, true))
                     ->sortBy([['group_name', 'asc'], ['name', 'asc']])
                     ->values()
                     ->map(fn ($permission) => [

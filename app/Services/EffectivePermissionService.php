@@ -9,6 +9,12 @@ class EffectivePermissionService
 {
     public const ADMIN_PERMISSIONS = ['users.manage', 'users.permissions.manage'];
 
+    public const HIDDEN_MANAGEMENT_PERMISSIONS = [
+        'can_return_document',
+        'can_share_document',
+        'can_view_confidential',
+    ];
+
     public function defaults(User $user): array
     {
         return $user->getPermissionsViaRoles()->pluck('name')->unique()->values()->all();
@@ -38,7 +44,12 @@ class EffectivePermissionService
         $direct = $user->permissions->pluck('name')->all();
         $overrides = $user->permissionOverrides->keyBy('permission_name');
 
-        return Permission::query()->where('guard_name', 'web')->orderBy('group_name')->orderBy('name')->get()
+        return Permission::query()
+            ->where('guard_name', 'web')
+            ->whereNotIn('name', self::HIDDEN_MANAGEMENT_PERMISSIONS)
+            ->orderBy('group_name')
+            ->orderBy('name')
+            ->get()
             ->map(function (Permission $permission) use ($defaults, $overrides, $direct): array {
                 $effect = $overrides->get($permission->name)?->effect ?? (in_array($permission->name, $direct, true) ? 'grant' : null);
                 $inherited = in_array($permission->name, $defaults, true);
