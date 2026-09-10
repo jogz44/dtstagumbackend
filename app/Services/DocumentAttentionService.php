@@ -61,8 +61,12 @@ class DocumentAttentionService
             })
             ->whereNull('acknowledged_at')
             ->whereHas('document', function (Builder $qDoc) use ($user) {
-                $qDoc->where('created_by', '!=', $user->id)
-                    ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL);
+                $qDoc->where(function ($qC) use ($user) {
+                    $qC->where('created_by', '!=', $user->id)
+                       ->orWhere('assigned_user', $user->full_name)
+                       ->orWhere('assigned_user', (string) $user->id);
+                })
+                ->whereNotIn(DB::raw('LOWER(status)'), DocumentStatuses::TERMINAL);
             })
             ->count();
 

@@ -406,4 +406,71 @@ class DocumentTrackingApiTest extends TestCase
         $response = $this->getJson("/api/documents/{$docSecret->id}/tracking");
         $response->assertStatus(403);
     }
+
+    public function test_transmitted_document_excluded_from_receiver_active_list_but_searchable(): void
+    {
+        $receiverRole = Role::firstOrCreate(['name' => 'receiver', 'guard_name' => 'web']);
+        $receiver = User::create([
+            'username' => 'receiver_test',
+            'first_name' => 'Receiver',
+            'last_name' => 'Staff',
+            'password' => Hash::make('password'),
+            'office_id' => $this->officeA->id,
+            'must_change_password' => false,
+            'is_active' => true,
+        ]);
+        $receiver->assignRole($receiverRole);
+
+        $document = Document::create([
+            'tracking_number' => 'DOC-TRANSMIT-999',
+            'description' => 'Document to be Transmitted',
+            'document_type' => 'Memo',
+            'priority_level' => 'Normal',
+            'origin_sender' => $this->officeA->name,
+            'sender_name' => $receiver->full_name,
+            'office_assignment' => $this->officeA->name,
+            'assigned_user' => $receiver->full_name,
+            'created_by' => $receiver->id,
+            'status' => 'incoming',
+        ]);
+
+        Sanctum::actingAs($receiver);
+
+        // 1. Before transmission: appears in receiver's active document list (tab=my)
+        $resBefore = $this->getJson('/api/documents?tab=my');
+        $resBefore->assertOk();
+        $itemsBefore = $resBefore->json('data') ?? $resBefore->json();
+        $trackingNumbersBefore = collect($itemsBefore)->pluck('tracking_number')->toArray();
+        $this->assertContains('DOC-TRANSMIT-999', $trackingNumbersBefore);
+
+        // 2. Transmit document to Office B
+        $document->update([
+            'office_assignment' => $this->officeB->name,
+            'assigned_user' => $this->userB->full_name,
+            'status' => 'transferred',
+        ]);
+        DocumentHistory::record($document, 'TRANSFERRED', $receiver, [
+            'remarks' => 'Transmitted to Office B.',
+            'from_office' => $this->officeA->name,
+            'to_office' => $this->officeB->name,
+            'from_user_id' => $receiver->id,
+            'to_user_id' => $this->userB->id,
+            'status_before' => 'incoming',
+            'status_after' => 'transferred',
+        ]);
+
+        // 3. After transmission: absent from active document list (tab=my)
+        $resAfter = $this->getJson('/api/documents?tab=my');
+        $resAfter->assertOk();
+        $itemsAfter = $resAfter->json('data') ?? $resAfter->json();
+        $trackingNumbersAfter = collect($itemsAfter)->pluck('tracking_number')->toArray();
+        $this->assertNotContains('DOC-TRANSMIT-999', $trackingNumbersAfter);
+
+        // 4. Searching for transmitted document: present in search results
+        $resSearch = $this->getJson('/api/documents?tab=my&search=DOC-TRANSMIT-999');
+        $resSearch->assertOk();
+        $itemsSearch = $resSearch->json('data') ?? $resSearch->json();
+        $trackingNumbersSearch = collect($itemsSearch)->pluck('tracking_number')->toArray();
+        $this->assertContains('DOC-TRANSMIT-999', $trackingNumbersSearch);
+    }
 }

@@ -199,14 +199,22 @@ class Document extends Model
                     }
                 } else {
                     // Regular receiver:
-                    // 1. Directly assigned to user (user is the current holder)
+                    // 1. Directly assigned to user (user is current holder) AND has not been transmitted out by user
                     $q->where(function ($qHolder) use ($user) {
-                        $qHolder->where('assigned_user', (string) $user->id)
-                                ->orWhere('assigned_user', $user->full_name)
-                                ->orWhere('assigned_user', $user->username);
+                        $qHolder->where(function ($qAssigned) use ($user) {
+                            $qAssigned->where('assigned_user', (string) $user->id)
+                                      ->orWhere('assigned_user', $user->full_name)
+                                      ->orWhere('assigned_user', $user->username);
+                        })->whereDoesntHave('histories', function ($qTx) use ($user) {
+                            $qTx->whereIn('action', ['TRANSFERRED', 'FORWARDED', 'RELEASED', 'TRANSMITTED'])
+                                ->where(function ($qUser) use ($user) {
+                                    $qUser->where('performed_by', $user->id)
+                                          ->orWhere('from_user_id', $user->id);
+                                });
+                        });
                     });
 
-                    // 2. OR involved (created, acknowledged, or in history), PROVIDED the document is still in user's office or unassigned
+                    // 2. OR involved (created, acknowledged, or in history), PROVIDED the document is still in user's office or unassigned AND has not been transmitted out by user
                     $q->orWhere(function ($qInvolved) use ($user, $officeNames) {
                         $qInvolved->where(function ($qSub) use ($user) {
                             $qSub->where('created_by', $user->id)
@@ -222,7 +230,15 @@ class Document extends Model
                                            ->orWhere('to_user_id', $user->id)
                                            ->orWhere('from_user_id', $user->id);
                                  });
-                        });
+                        })
+                        ->whereDoesntHave('histories', function ($qTx) use ($user) {
+                            $qTx->whereIn('action', ['TRANSFERRED', 'FORWARDED', 'RELEASED', 'TRANSMITTED'])
+                                ->where(function ($qUser) use ($user) {
+                                    $qUser->where('performed_by', $user->id)
+                                          ->orWhere('from_user_id', $user->id);
+                                });
+                        })
+                        ->whereNotIn('status', ['transferred', 'released', 'outgoing', 'in_transit']);
 
                         if (! empty($officeNames)) {
                             $qInvolved->where(function ($qOff) use ($officeNames) {

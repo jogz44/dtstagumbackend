@@ -143,7 +143,7 @@ class DocumentController extends Controller
                              ->orWhereIn('origin_sender', $officeNames);
                       }
                   } else {
-                      // Regular receiver: directly assigned (current holder), or created/involved if still in user's office or unassigned
+                      // Regular receiver search scope: directly assigned (current holder), or created/involved (including transmitted documents)
                       $qUserScope->where(function ($qHolder) use ($user) {
                           $qHolder->where('assigned_user', (string) $user->id)
                               ->orWhere('assigned_user', $user->full_name)
@@ -162,7 +162,7 @@ class DocumentController extends Controller
                           });
 
                           if (! empty($officeNames)) {
-                              $qInvolved->where(function ($qOff) use ($officeNames) {
+                              $qInvolved->orWhere(function ($qOff) use ($officeNames) {
                                   $qOff->whereNull('office_assignment')
                                        ->orWhere('office_assignment', '')
                                        ->orWhereIn('office_assignment', $officeNames);

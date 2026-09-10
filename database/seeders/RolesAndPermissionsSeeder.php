@@ -31,6 +31,7 @@ class RolesAndPermissionsSeeder extends Seeder
         });
 
         $permissions = array_merge($permissions, [
+            ['name' => 'can_release_document', 'guard_name' => 'web', 'group_name' => 'Documents'],
             ['name' => 'can_archive_document', 'guard_name' => 'web', 'group_name' => 'Documents'],
             ['name' => 'reports.view', 'guard_name' => 'web', 'group_name' => 'Reports'],
             ['name' => 'reports.export', 'guard_name' => 'web', 'group_name' => 'Reports'],
@@ -44,7 +45,7 @@ class RolesAndPermissionsSeeder extends Seeder
 
         $roleModels['admin']->syncPermissions(array_column($permissions, 'name'));
         $roleModels['supervisor']->syncPermissions(array_values(array_diff(array_column($permissions, 'name'), ['users.manage', 'users.permissions.manage'])));
-        $roleModels['receiver']->syncPermissions(['can_receive_documents', 'can_add_documents', 'performance_ranking.view', 'reports.view']);
+        $roleModels['receiver']->syncPermissions(['can_receive_documents', 'can_add_documents', 'can_edit_document', 'can_transfer_documents', 'can_release_document', 'performance_ranking.view', 'reports.view']);
 
         // Give reports.view to all remaining roles in database if any exist
         $reportsViewPermission = Permission::findOrCreate('reports.view', 'web');
