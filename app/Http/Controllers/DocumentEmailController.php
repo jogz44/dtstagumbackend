@@ -52,9 +52,18 @@ class DocumentEmailController extends Controller
                 'exception' => $e,
             ]);
 
+            $cleanMessage = 'Failed to send email. Unable to connect to mail server.';
+            if (str_contains(strtolower($e->getMessage()), 'connection could not be established') || str_contains(strtolower($e->getMessage()), 'stream_socket_client')) {
+                $cleanMessage = 'Failed to send email. Mail server connection timed out.';
+            } elseif (strlen($e->getMessage()) > 80) {
+                $cleanMessage = 'Failed to send email: ' . substr($e->getMessage(), 0, 75) . '...';
+            } else {
+                $cleanMessage = 'Failed to send email: ' . $e->getMessage();
+            }
+
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to send email: ' . $e->getMessage(),
+                'message' => $cleanMessage,
             ], 500);
         } finally {
             if ($qrImagePath && file_exists($qrImagePath)) {

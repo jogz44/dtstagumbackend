@@ -776,7 +776,7 @@ class DocumentController extends Controller
         ]);
 
         return response()->json([
-            'message' => 'Document transferred successfully.',
+            'message' => 'Document transmitted successfully.',
             'document' => $document->fresh([
                 'creator',
                 'creator.office',
@@ -1600,7 +1600,7 @@ class DocumentController extends Controller
 
                 $title = match ($action) {
                     'REGISTERED' => 'Document received',
-                    'TRANSFERRED' => "Document transferred",
+                    'TRANSFERRED', 'TRANSMIT', 'TRANSMITTED' => "Document transmitted",
                     'RECEIVED' => 'Document received',
                     'EDITED' => 'Document edited',
                     'COMPLETED' => 'Document completed',
@@ -1611,7 +1611,7 @@ class DocumentController extends Controller
             $route = null;
             if ($action === 'RECEIVED') {
                 $route = $h->to_office ?: $h->user?->office?->name ?: $h->from_office;
-            } elseif ($action === 'TRANSFERRED') {
+            } elseif ($action === 'TRANSFERRED' || $action === 'TRANSMIT' || $action === 'TRANSMITTED') {
                 $route = $h->from_office ?: null;
             } else {
                 $route = $h->to_office ?: $h->from_office ?: null;
@@ -1669,9 +1669,11 @@ class DocumentController extends Controller
             'pending acknowledgement.',
             'pending acknowledgement (released).',
             'pending acknowledgement (transferred).',
+            'pending acknowledgement (transmitted).',
             'pending acknowledgement (returned).',
             'pending acknowledgement (reassigned).',
             'document transferred.',
+            'document transmitted.',
             'document returned to sender.',
             'document archived.',
             'document retrieved from completed.',
