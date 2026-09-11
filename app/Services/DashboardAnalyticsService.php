@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Document;
 use App\Models\DocumentAcknowledgement;
+use App\Models\DocumentHistory;
 use App\Models\User;
 use App\Support\DocumentStatuses;
 use Illuminate\Database\Eloquent\Builder;
@@ -528,20 +529,18 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Received Today - office-wide aggregate (includes transmitted documents)
-        $receivedToday = (clone $officeReceivedQuery)
-            ->where(function ($q) use ($todayStart, $todayEnd) {
-                $q->where(function ($sub) use ($todayStart, $todayEnd) {
-                    $sub->whereNotNull('received_at')
-                        ->where('received_at', '>=', $todayStart)
-                        ->where('received_at', '<', $todayEnd);
-                })->orWhere(function ($sub) use ($todayStart, $todayEnd) {
-                    $sub->whereNull('received_at')
-                        ->where('created_at', '>=', $todayStart)
-                        ->where('created_at', '<', $todayEnd);
-                });
-            })
-            ->count();
+        // Received Today - count distinct documents that have a RECEIVED history entry
+        // for this office today. This is authoritative regardless of whether received_at
+        // is populated on the document itself.
+        $officeNames = \App\Models\Document::getSimilarOfficeNames($viewer->office?->name);
+        $receivedToday = DocumentHistory::query()
+            ->where('action', DocumentHistory::RECEIVED)
+            ->where('created_at', '>=', $todayStart)
+            ->where('created_at', '<', $todayEnd)
+            ->when(! empty($officeNames), fn ($q) => $q->whereIn('to_office', $officeNames))
+            ->when(empty($officeNames), fn ($q) => $q->where('performed_by', $viewer->id))
+            ->distinct('document_id')
+            ->count('document_id');
 
         return [
             'year' => $year,

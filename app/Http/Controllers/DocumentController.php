@@ -18,6 +18,7 @@ use App\Services\DocumentNotificationService;
 use App\Services\DocumentTrackingService;
 use App\Services\UserAuditAccess;
 use App\Support\RoleNames;
+use Illuminate\Support\Carbon;
 use Illuminate\Filesystem\FilesystemAdapter;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -1445,6 +1446,7 @@ class DocumentController extends Controller
             'division_assignment' => $userDivision,
             'assigned_user' => $user->full_name,
             'status' => 'pending',
+            'received_at' => $document->received_at ?? Carbon::now(),
         ]);
 
         $remarks = $request->filled('remarks') ? $request->input('remarks') : null;
