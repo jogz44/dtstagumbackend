@@ -49,7 +49,7 @@ return [
 
         'shared_documents' => [
             'driver' => 'local',
-            'root' => env('SHARED_DOCUMENT_STORAGE_PATH', storage_path('app/documents')),
+            'root' => env('SHARED_DOCUMENT_STORAGE_PATH') ?: storage_path('app/documents'),
             'throw' => false,
             'report' => false,
         ],

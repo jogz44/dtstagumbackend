@@ -529,18 +529,26 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Received Today - count distinct documents that have a RECEIVED history entry
-        // for this office today. This is authoritative regardless of whether received_at
-        // is populated on the document itself.
+        // Received Today - count distinct documents that have a received_at timestamp today
+        // or a RECEIVED history entry for this office today.
         $officeNames = \App\Models\Document::getSimilarOfficeNames($viewer->office?->name);
-        $receivedToday = DocumentHistory::query()
+        $historyDocIds = DocumentHistory::query()
             ->where('action', DocumentHistory::RECEIVED)
             ->where('created_at', '>=', $todayStart)
             ->where('created_at', '<', $todayEnd)
             ->when(! empty($officeNames), fn ($q) => $q->whereIn('to_office', $officeNames))
             ->when(empty($officeNames), fn ($q) => $q->where('performed_by', $viewer->id))
-            ->distinct('document_id')
-            ->count('document_id');
+            ->pluck('document_id');
+
+        $receivedToday = (clone $officeReceivedQuery)
+            ->where(function ($q) use ($todayStart, $todayEnd, $historyDocIds) {
+                $q->where(function ($sub) use ($todayStart, $todayEnd) {
+                    $sub->whereNotNull('received_at')
+                        ->where('received_at', '>=', $todayStart)
+                        ->where('received_at', '<', $todayEnd);
+                })->orWhereIn('id', $historyDocIds);
+            })
+            ->count();
 
         return [
             'year' => $year,
