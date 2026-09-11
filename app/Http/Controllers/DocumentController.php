@@ -685,9 +685,9 @@ class DocumentController extends Controller
     public function update(Request $request, Document $document): JsonResponse
     {
         $validated = $request->validate([
-            'document_type' => 'nullable|string',
-            'priority_level' => 'nullable|string',
-            'description' => 'nullable|string|max:30',
+            'document_type' => 'nullable|string|max:255',
+            'priority_level' => 'nullable|string|max:100',
+            'description' => 'nullable|string|max:500',
             'is_confidential' => 'nullable|boolean',
             'remarks' => 'nullable|string',
             'due_date' => 'nullable|date',

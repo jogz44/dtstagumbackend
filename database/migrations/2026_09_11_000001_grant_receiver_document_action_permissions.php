@@ -12,7 +12,14 @@ return new class extends Migration
             return;
         }
 
-        $permissionNames = ['can_edit_document', 'can_transfer_documents', 'can_release_document'];
+        $permissionNames = [
+            'can_edit_document',
+            'can_transfer_documents',
+            'can_release_document',
+            'can_complete_document',
+            'can_return_document',
+            'can_archive_document',
+        ];
 
         foreach ($permissionNames as $permissionName) {
             $permissionId = DB::table('permissions')->where('name', $permissionName)->where('guard_name', 'web')->value('id');
@@ -23,6 +30,8 @@ return new class extends Migration
                 ]);
             }
         }
+
+        app(\Spatie\Permission\PermissionRegistrar::class)->forgetCachedPermissions();
     }
 
     public function down(): void
