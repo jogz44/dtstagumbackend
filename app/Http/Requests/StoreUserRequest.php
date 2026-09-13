@@ -53,7 +53,7 @@ class StoreUserRequest extends FormRequest
                 'integer',
                 Rule::exists('barangays', 'id')->where('is_active', true),
             ],
-            'role' => ['required', 'string', Rule::exists('roles', 'name')],
+            'role' => ['required_without:barangay_id', 'nullable', 'string', Rule::exists('roles', 'name')],
             'username' => ['nullable', 'string', 'max:255', Rule::unique('users', 'username')],
             'office_id' => ['nullable', 'uuid', Rule::exists('offices', 'id')],
             'division_id' => ['nullable', 'uuid', Rule::exists('divisions', 'id')],
@@ -81,7 +81,7 @@ class StoreUserRequest extends FormRequest
             'barangay_id.exists' => 'The selected Barangay is invalid.',
             'pmis_employee_id.exists' => 'The selected PMIS employee record does not exist.',
             'pmis_employee_id.unique' => 'This PMIS employee already has a linked portal account.',
-            'role.required' => 'System role is required.',
+            'role.required_without' => 'System role is required when not creating a barangay user.',
             'role.exists' => 'The selected system role is invalid.',
             'email.unique' => 'This email address is already in use by another account.',
         ];

@@ -147,7 +147,15 @@ class UserAccountService
 
                     $user = User::create($userData);
 
-                    $roleName = $validated['role'] ?? $this->defaultRoleName();
+                    // Barangay users (created with barangay_id and no office) are always receivers.
+                    // This ensures external/barangay accounts cannot be assigned elevated roles.
+                    $hasBarangay = ! empty($validated['barangay_id']);
+                    $hasOffice = ! empty($officeId);
+                    if ($hasBarangay && ! $hasOffice) {
+                        $roleName = RoleNames::RECEIVER;
+                    } else {
+                        $roleName = $validated['role'] ?? $this->defaultRoleName();
+                    }
                     if ($roleName) {
                         $user->syncRoles([$roleName]);
                     }
