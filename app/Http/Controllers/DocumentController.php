@@ -982,12 +982,6 @@ class DocumentController extends Controller
     public function complete(Request $request, Document $document): JsonResponse
     {
         $user = $request->user();
-        $isAuthorized = (method_exists($user, 'hasRole') && ($user->hasRole('admin') || $user->hasRole('supervisor') || $user->hasRole('receiver')))
-            || $user->can('can_complete_document')
-            || ($document->assigned_user_id === $user->id)
-            || ($document->created_by === $user->id);
-
-        abort_unless($isAuthorized, 403, 'This action is unauthorized.');
 
         $validated = $request->validate([
             'remarks' => 'nullable|string',
