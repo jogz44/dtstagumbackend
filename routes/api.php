@@ -162,7 +162,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/documents/{document}/release', [DocumentController::class, 'release'])->middleware('can:can_release_document');
         Route::post('/documents/{document}/archive', [DocumentController::class, 'archive'])->middleware('can:can_archive_document');
         Route::post('/documents/{document}/share', [DocumentController::class, 'share'])->middleware('can:can_edit_document');
-        Route::post('/documents/{document}/complete', [DocumentController::class, 'complete'])->middleware('can:can_complete_document');
+        Route::post('/documents/{document}/complete', [DocumentController::class, 'complete']);
         Route::post('/documents/{document}/return', [DocumentController::class, 'returnDocument'])->middleware('can:can_return_document');
         Route::post('/documents/{document}/retrieve', [DocumentController::class, 'retrieve'])->middleware('can:can_archive_document');
         Route::get('/document-types', [DocumentController::class, 'getDocumentTypes']);

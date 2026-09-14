@@ -981,6 +981,14 @@ class DocumentController extends Controller
 
     public function complete(Request $request, Document $document): JsonResponse
     {
+        $user = $request->user();
+        $isAuthorized = (method_exists($user, 'hasRole') && ($user->hasRole('admin') || $user->hasRole('supervisor') || $user->hasRole('receiver')))
+            || $user->can('can_complete_document')
+            || ($document->assigned_user_id === $user->id)
+            || ($document->created_by === $user->id);
+
+        abort_unless($isAuthorized, 403, 'This action is unauthorized.');
+
         $validated = $request->validate([
             'remarks' => 'nullable|string',
         ]);
@@ -990,16 +998,17 @@ class DocumentController extends Controller
         $document->update([
             'status' => 'completed',
             'completed_at' => now(),
+            'completed_by_user_id' => $user->id,
             'remarks' => $validated['remarks'] ?? null,
         ]);
 
-        DocumentHistory::record($document, DocumentHistory::COMPLETED, $request->user(), [
+        DocumentHistory::record($document, DocumentHistory::COMPLETED, $user, [
             'remarks' => $validated['remarks'] ?? null,
             'status_before' => $statusBefore,
             'status_after' => 'completed',
         ]);
 
-        app(DocumentNotificationService::class)->notifyApproved($document, $request->user());
+        app(DocumentNotificationService::class)->notifyApproved($document, $user);
 
         return response()->json([
             'message' => 'Document marked as complete.',
