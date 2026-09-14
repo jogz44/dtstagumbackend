@@ -529,14 +529,17 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Received Today - count distinct documents that have a received_at timestamp today
-        // or a RECEIVED history entry for this office today.
+        // Received Today - count distinct documents that have a received_at/created_at timestamp today,
+        // an acknowledgement today, or a history entry for this office/user today.
         $officeNames = \App\Models\Document::getSimilarOfficeNames($viewer->office?->name);
         $historyDocIds = DocumentHistory::query()
-            ->where('action', DocumentHistory::RECEIVED)
+            ->whereIn('action', [DocumentHistory::RECEIVED, 'RECEIVED', 'TRANSFERRED', 'CREATED', 'REGISTERED', 'ACKNOWLEDGED', 'FORWARDED'])
             ->where('created_at', '>=', $todayStart)
             ->where('created_at', '<', $todayEnd)
-            ->when(! empty($officeNames), fn ($q) => $q->whereIn('to_office', $officeNames))
+            ->when(! empty($officeNames), fn ($q) => $q->where(function ($w) use ($officeNames) {
+                $w->whereIn('to_office', $officeNames)
+                  ->orWhereIn('from_office', $officeNames);
+            }))
             ->when(empty($officeNames), fn ($q) => $q->where('performed_by', $viewer->id))
             ->pluck('document_id');
 
@@ -546,6 +549,13 @@ class DashboardAnalyticsService
                     $sub->whereNotNull('received_at')
                         ->where('received_at', '>=', $todayStart)
                         ->where('received_at', '<', $todayEnd);
+                })->orWhere(function ($sub) use ($todayStart, $todayEnd) {
+                    $sub->whereNull('received_at')
+                        ->where('created_at', '>=', $todayStart)
+                        ->where('created_at', '<', $todayEnd);
+                })->orWhereHas('acknowledgements', function ($sub) use ($todayStart, $todayEnd) {
+                    $sub->where('created_at', '>=', $todayStart)
+                        ->where('created_at', '<', $todayEnd);
                 })->orWhereIn('id', $historyDocIds);
             })
             ->count();

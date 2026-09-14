@@ -69,7 +69,11 @@ class DocumentController extends Controller
 
             if (! empty($searchParam)) {
                 $searchTrimmed = trim($searchParam);
-                $query->where(function ($qSearch) use ($searchTrimmed) {
+                $searchLower = strtolower($searchTrimmed);
+                $terminalStatuses = ['approved', 'archived', 'completed', 'released'];
+                $todayStr = Carbon::today('Asia/Manila')->toDateString();
+
+                $query->where(function ($qSearch) use ($searchTrimmed, $searchLower, $terminalStatuses, $todayStr) {
                     $qSearch->where('tracking_number', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('description', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('origin_sender', 'LIKE', "%{$searchTrimmed}%")
@@ -81,6 +85,22 @@ class DocumentController extends Controller
                         ->orWhere('assigned_user', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('remarks', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('status', 'LIKE', "%{$searchTrimmed}%");
+
+                    if ($searchLower === 'overdue') {
+                        $qSearch->orWhere(function ($qOvd) use ($terminalStatuses, $todayStr) {
+                            $qOvd->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
+                                ->whereNotNull('due_date')
+                                ->where('due_date', '<=', $todayStr);
+                        });
+                    } elseif ($searchLower === 'today') {
+                        $qSearch->orWhereDate('created_at', $todayStr)
+                            ->orWhereDate('received_at', $todayStr)
+                            ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->whereDate('created_at', $todayStr));
+                    } elseif ($searchLower === 'pending') {
+                        $qSearch->orWhereIn(DB::raw('LOWER(status)'), ['pending', 'registered', 'received', 'in_process', 'in progress', 'in_transit']);
+                    } elseif ($searchLower === 'completed') {
+                        $qSearch->orWhereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved']);
+                    }
                 });
             }
         } elseif (! empty($searchParam)) {
@@ -173,6 +193,10 @@ class DocumentController extends Controller
                   }
               })
               ->where(function ($qSearch) use ($searchTrimmed) {
+                  $searchLower = strtolower($searchTrimmed);
+                  $terminalStatuses = ['approved', 'archived', 'completed', 'released'];
+                  $todayStr = Carbon::today('Asia/Manila')->toDateString();
+
                   $qSearch->where('tracking_number', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('description', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('origin_sender', 'LIKE', "%{$searchTrimmed}%")
@@ -184,6 +208,22 @@ class DocumentController extends Controller
                       ->orWhere('assigned_user', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('remarks', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('status', 'LIKE', "%{$searchTrimmed}%");
+
+                  if ($searchLower === 'overdue') {
+                      $qSearch->orWhere(function ($qOvd) use ($terminalStatuses, $todayStr) {
+                          $qOvd->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
+                              ->whereNotNull('due_date')
+                              ->where('due_date', '<=', $todayStr);
+                      });
+                  } elseif ($searchLower === 'today') {
+                      $qSearch->orWhereDate('created_at', $todayStr)
+                          ->orWhereDate('received_at', $todayStr)
+                          ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->whereDate('created_at', $todayStr));
+                  } elseif ($searchLower === 'pending') {
+                      $qSearch->orWhereIn(DB::raw('LOWER(status)'), ['pending', 'registered', 'received', 'in_process', 'in progress', 'in_transit']);
+                  } elseif ($searchLower === 'completed') {
+                      $qSearch->orWhereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved']);
+                  }
               });
         } elseif ($request->query('attention') === 'due') {
             // The canonical authorized due scope replaces tab-specific scopes.
