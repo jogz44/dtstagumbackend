@@ -983,6 +983,27 @@ class DocumentController extends Controller
     {
         $user = $request->user();
 
+        // Case-insensitive role check (handles DB inconsistencies like 'Admin' vs 'admin')
+        $userRoles = method_exists($user, 'getRoleNames')
+            ? $user->getRoleNames()->map(fn($r) => strtolower($r))->toArray()
+            : [];
+
+        $isPrivilegedRole = in_array('admin', $userRoles)
+            || in_array('supervisor', $userRoles)
+            || in_array('receiver', $userRoles);
+
+        $isHolder = ($document->assigned_user_id && $document->assigned_user_id === $user->id)
+            || ($document->assigned_user && (
+                $document->assigned_user === $user->full_name
+                || $document->assigned_user === (string) $user->id
+            ));
+
+        $isCreator = $document->created_by === $user->id;
+
+        if (! $isPrivilegedRole && ! $isHolder && ! $isCreator) {
+            return response()->json(['message' => 'This action is unauthorized.'], 403);
+        }
+
         $validated = $request->validate([
             'remarks' => 'nullable|string',
         ]);
