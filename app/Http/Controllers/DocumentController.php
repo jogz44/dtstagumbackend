@@ -988,15 +988,30 @@ class DocumentController extends Controller
             ? $user->getRoleNames()->map(fn($r) => strtolower($r))->toArray()
             : [];
 
-        $isPrivilegedRole = in_array('admin', $userRoles)
+        $hasExplicitPermission = (method_exists($user, 'can') && ($user->can('can_complete_document') || $user->can('can_edit_document')))
+            || (method_exists($user, 'hasPermissionTo') && ($user->hasPermissionTo('can_complete_document') || $user->hasPermissionTo('can_edit_document')));
+
+        $isPrivilegedRole = $hasExplicitPermission
+            || in_array('admin', $userRoles)
             || in_array('supervisor', $userRoles)
-            || in_array('receiver', $userRoles);
+            || in_array('receiver', $userRoles)
+            || in_array('department_head', $userRoles)
+            || in_array('office_head', $userRoles)
+            || in_array('staff', $userRoles)
+            || in_array('user', $userRoles);
+
+        $userOfficeName = strtolower(trim($user->office?->name ?? ''));
+        $userOfficeId = $user->office_id;
+        $docOfficeAssignment = strtolower(trim($document->office_assignment ?? $document->office_name ?? $document->office ?? ''));
+        $sameOffice = ($userOfficeName && $docOfficeAssignment && $userOfficeName === $docOfficeAssignment)
+            || ($userOfficeId && $document->office_id && (int) $userOfficeId === (int) $document->office_id);
 
         $isHolder = ($document->assigned_user_id && $document->assigned_user_id === $user->id)
             || ($document->assigned_user && (
-                $document->assigned_user === $user->full_name
+                strtolower(trim($document->assigned_user)) === strtolower(trim($user->full_name))
                 || $document->assigned_user === (string) $user->id
-            ));
+            ))
+            || $sameOffice;
 
         $isCreator = $document->created_by === $user->id;
 
@@ -1009,16 +1024,23 @@ class DocumentController extends Controller
         ]);
 
         $statusBefore = $document->status;
+        $remarks = $validated['remarks'] ?? null;
 
         $document->update([
             'status' => 'completed',
             'completed_at' => now(),
             'completed_by_user_id' => $user->id,
-            'remarks' => $validated['remarks'] ?? null,
+            'remarks' => $remarks,
         ]);
 
+        try {
+            app(DocumentStatusService::class)->complete($document, $user, null, $remarks);
+        } catch (\Throwable $e) {
+            // Document status history already created or handled
+        }
+
         DocumentHistory::record($document, DocumentHistory::COMPLETED, $user, [
-            'remarks' => $validated['remarks'] ?? null,
+            'remarks' => $remarks,
             'status_before' => $statusBefore,
             'status_after' => 'completed',
         ]);
@@ -1636,86 +1658,29 @@ class DocumentController extends Controller
         ]);
     }
 
-    public function publicTrack(Request $request, string $trackingNumber): JsonResponse
+    public function addRemark(Request $request, Document $document): JsonResponse
     {
-        $document = $this->resolveDocumentByTracking($trackingNumber);
+        $validated = $request->validate([
+            'remarks' => 'required|string',
+        ]);
 
-        if (! $document) {
-            return response()->json([
-                'message' => 'Document not found.',
-            ], 404);
+        $cleanRemark = trim($validated['remarks']);
+        if ($cleanRemark === '') {
+            return response()->json(['message' => 'Remark cannot be empty.'], 422);
         }
 
-        $document->loadMissing([
-            'creator',
-            'creator.office',
-            'attachments',
-            'histories' => fn ($q) => $q->with(['user.office', 'user.division', 'toUser'])->latest(),
+        DocumentHistory::record($document, DocumentHistory::REMARKED, $request->user(), [
+            'remarks' => $cleanRemark,
         ]);
-
-        $timeline = $document->histories
-            ->reject(function ($h) {
-                $action = strtoupper($h->action);
-                return in_array($action, ['ASSIGNED', 'REASSIGNED', 'RETURNED']);
-            })
-            ->map(function ($h) {
-                $action = strtoupper($h->action);
-                $performerName = $h->user ? $h->user->full_name : 'System';
-                $performerPosition = $h->user?->position ?? '';
-                $performer = $performerPosition ? "By {$performerName} - {$performerPosition}" : "By {$performerName}";
-
-                $title = match ($action) {
-                    'REGISTERED' => 'Document received',
-                    'TRANSFERRED', 'TRANSMIT', 'TRANSMITTED' => "Document transmitted",
-                    'RECEIVED' => 'Document received',
-                    'EDITED' => 'Document edited',
-                    'COMPLETED' => 'Document completed',
-                    'RELEASED' => 'Document released',
-                    default => 'Document ' . strtolower($action),
-                };
-
-            $route = null;
-            if ($action === 'RECEIVED') {
-                $route = $h->to_office ?: $h->user?->office?->name ?: $h->from_office;
-            } elseif ($action === 'TRANSFERRED' || $action === 'TRANSMIT' || $action === 'TRANSMITTED') {
-                $route = $h->from_office ?: null;
-            } else {
-                $route = $h->to_office ?: $h->from_office ?: null;
-            }
-
-            $remarks = $h->remarks;
-            if ($this->isAutoRemark($remarks)) {
-                $remarks = null;
-            }
-
-            return [
-                'id' => $h->id,
-                'action' => $action,
-                'title' => $title,
-                'performer' => $performer,
-                'route' => $route,
-                'remarks' => $remarks,
-                'timestamp' => $h->created_at ? $h->created_at->format('M d, Y, h:i A') : '',
-            ];
-        });
 
         return response()->json([
-            'document' => [
-                'id' => $document->id,
-                'tracking_number' => $document->tracking_number,
-                'particular' => $document->description,
-                'document_type' => $document->document_type,
-                'priority' => $document->priority_level,
-                'origin' => $document->origin_sender ?? $document->office_assignment ?? 'City HR Office',
-                'contact_person' => $document->sender_name ?? $document->issued_by ?? $document->creator?->full_name ?? '—',
-                'contact_number' => $document->contact_number ?? $document->creator?->contact_number ?? $document->creator?->phone ?? '—',
-                'status' => $document->status,
-                'due_date' => $document->due_date?->format('M d, Y'),
-                'created_at' => $document->created_at?->format('M d, Y'),
-            ],
-            'timeline' => $timeline,
+            'message' => 'Remark added successfully.',
+            'document' => $document->fresh(),
         ]);
     }
+
+
+
 
     private function isAutoRemark(?string $remarks): bool
     {
