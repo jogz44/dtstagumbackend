@@ -17,11 +17,13 @@ class DocumentTrackingService
     /**
      * Build the complete tracking summary for a given document.
      */
-    public function getTrackingSummary(Document $document, User $viewer): array
+    public function getTrackingSummary(Document $document, ?User $viewer = null): array
     {
-        $viewerCanSeeConfidential = $this->checkIsAdmin($viewer)
+        $viewerCanSeeConfidential = $viewer ? (
+            $viewer->hasRole(RoleNames::ADMIN)
             || $viewer->can('documents.view_confidential')
-            || $viewer->can('can_view_confidential');
+            || $viewer->can('can_view_confidential')
+        ) : false;
 
         $canShowSensitiveFields = ! $document->is_confidential || $viewerCanSeeConfidential;
 

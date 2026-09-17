@@ -1657,6 +1657,45 @@ class DocumentController extends Controller
         return $this->receive($request, $document);
     }
 
+    public function publicTrack(Request $request, string $trackingNumber): JsonResponse
+    {
+        $document = $this->resolveDocumentByTracking($trackingNumber);
+
+        if (! $document) {
+            return response()->json([
+                'message' => "No document found matching tracking number '{$trackingNumber}'.",
+            ], 404);
+        }
+
+        $document->loadMissing([
+            'creator',
+            'creator.office',
+            'attachments',
+            'acknowledgements' => fn ($q) => $q->latest(),
+        ]);
+
+        $trackingService = app(DocumentTrackingService::class);
+        $summary = $trackingService->getTrackingSummary($document, $request->user());
+
+        return response()->json([
+            'document' => [
+                'id' => $document->id,
+                'tracking_number' => $document->tracking_number,
+                'particular' => $document->particular ?? $document->title ?? $document->description,
+                'description' => $document->description,
+                'type' => $document->document_type ?? $document->type ?? 'N/A',
+                'status' => $document->status,
+                'priority' => $document->priority_level ?? $document->priority ?? 'normal',
+                'origin' => $document->origin ?? $document->origin_sender ?? 'N/A',
+                'contact_person' => $document->contact_person ?? $document->assigned_user ?? 'N/A',
+                'contact_number' => $document->contact_number ?? 'N/A',
+                'issued_by' => $document->issued_by ?? 'N/A',
+                'created_at' => $document->created_at?->format('M d, Y h:i A'),
+            ],
+            'timeline' => $summary['timeline'] ?? [],
+        ]);
+    }
+
     public function getByTracking(Request $request, string $trackingNumber): JsonResponse
     {
         $document = $this->resolveDocumentByTracking($trackingNumber);

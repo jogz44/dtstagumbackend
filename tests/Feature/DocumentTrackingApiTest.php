@@ -473,4 +473,25 @@ class DocumentTrackingApiTest extends TestCase
         $trackingNumbersSearch = collect($itemsSearch)->pluck('tracking_number')->toArray();
         $this->assertContains('DOC-TRANSMIT-999', $trackingNumbersSearch);
     }
+
+    public function test_guest_can_publicly_track_document(): void
+    {
+        $document = Document::create([
+            'tracking_number' => 'DOC-PUBLIC-123',
+            'title' => 'Public Guest Document',
+            'description' => 'Test document for guest lookup',
+            'document_type' => 'Letter',
+            'priority_level' => 'normal',
+            'status' => 'registered',
+            'created_by' => $this->userA->id,
+            'origin_sender' => "Mayor's Office",
+            'sender_name' => "Mayor's Office",
+        ]);
+
+        $response = $this->getJson("/api/public/track/DOC-PUBLIC-123");
+
+        $response->assertOk()
+            ->assertJsonPath('document.tracking_number', 'DOC-PUBLIC-123')
+            ->assertJsonStructure(['document', 'timeline']);
+    }
 }
