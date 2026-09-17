@@ -1089,7 +1089,17 @@ class DocumentController extends Controller
         /** @var FilesystemAdapter $storage */
         $storage = Storage::disk($disk);
         if (! $storage->exists($attachment->path)) {
-            abort(404, 'File not found');
+            $fallbackDisks = ['shared_documents', 'public', 'local'];
+            foreach ($fallbackDisks as $fDisk) {
+                if ($fDisk !== $disk && Storage::disk($fDisk)->exists($attachment->path)) {
+                    $storage = Storage::disk($fDisk);
+                    break;
+                }
+            }
+        }
+
+        if (! $storage->exists($attachment->path)) {
+            abort(404, 'Attachment file not found on server storage disk.');
         }
 
         return $storage->response($attachment->path, $attachment->original_name, [
