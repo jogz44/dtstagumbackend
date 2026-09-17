@@ -463,7 +463,13 @@ class DocumentController extends Controller
             $disk = config('filesystems.document_disk', 'shared_documents');
 
             foreach ($request->file('attachments', []) as $file) {
+                if (! $file || ! $file->isValid()) {
+                    continue;
+                }
                 $path = $file->store("documents/{$document->id}", $disk);
+                if (! $path) {
+                    throw new \RuntimeException("Failed to store attachment file '{$file->getClientOriginalName()}' on server storage.");
+                }
 
                 $document->attachments()->create([
                     'disk' => $disk,
@@ -1343,7 +1349,12 @@ class DocumentController extends Controller
 
         $file = $request->file('file');
         $disk = config('filesystems.document_disk', 'shared_documents');
-        $path = $file->store("documents/{$document->id}", $disk);
+        $path = $file ? $file->store("documents/{$document->id}", $disk) : null;
+        if (! $path) {
+            return response()->json([
+                'message' => 'Failed to store attachment file on server. Please verify storage permissions.',
+            ], 500);
+        }
 
         $attachment = $document->attachments()->create([
             'disk' => $disk,
