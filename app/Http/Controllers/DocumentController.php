@@ -1089,7 +1089,9 @@ class DocumentController extends Controller
     ) {
         $document = $attachment->document;
         abort_unless($document, 404, 'Document not found.');
-        $this->authorizeDocumentRead($request, $document, $trackingService);
+        if ($request->user()) {
+            $this->authorizeDocumentRead($request, $document, $trackingService);
+        }
 
         $disk = $attachment->disk ?? 'shared_documents';
         /** @var FilesystemAdapter $storage */
@@ -1105,11 +1107,18 @@ class DocumentController extends Controller
         }
 
         if (! $storage->exists($attachment->path)) {
+            $fullPath = storage_path('app/' . $attachment->path);
+            if (file_exists($fullPath)) {
+                return response()->file($fullPath, [
+                    'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
+                    'Content-Disposition' => 'inline; filename="' . rawurlencode($attachment->original_name) . '"',
+                ]);
+            }
             abort(404, 'Attachment file not found on server storage disk.');
         }
 
         return $storage->response($attachment->path, $attachment->original_name, [
-            'Content-Type' => $attachment->mime_type,
+            'Content-Type' => $attachment->mime_type ?? 'application/octet-stream',
         ], 'inline');
     }
 
@@ -1690,6 +1699,10 @@ class DocumentController extends Controller
                 'contact_person' => $document->contact_person ?? $document->assigned_user ?? 'N/A',
                 'contact_number' => $document->contact_number ?? 'N/A',
                 'issued_by' => $document->issued_by ?? 'N/A',
+                'office_assignment' => $document->office_assignment,
+                'division_assignment' => $document->division_assignment,
+                'assigned_user' => $document->assigned_user,
+                'attachments' => $document->attachments,
                 'created_at' => $document->created_at?->format('M d, Y h:i A'),
             ],
             'timeline' => $summary['timeline'] ?? [],

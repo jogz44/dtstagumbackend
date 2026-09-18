@@ -229,12 +229,9 @@
             <!-- QR Code and Link Section -->
             <div class="qr-container">
                 @if(!empty($qrImagePath) && file_exists($qrImagePath))
-                @php
-                    $qrSrc = 'data:image/png;base64,' . base64_encode(file_get_contents($qrImagePath));
-                @endphp
                 <p class="qr-heading">Scan the QR code</p>
                 <div class="qr-frame">
-                    <img src="{{ $qrSrc }}"
+                    <img src="{{ $message->embed($qrImagePath) }}"
                          alt="QR Code for {{ $trackingNumber }}" />
                 </div>
                 <p class="qr-sub">Scan with your camera or QR scanner to view real-time document progress</p>
@@ -248,7 +245,6 @@
                 @endif
 
                 <div class="action-wrap">
-                    <a href="{{ $guestTrackUrl }}" class="track-btn">Track Document →</a>
                     <a href="{{ $guestTrackUrl }}" class="track-link">{{ $guestTrackUrl }}</a>
                 </div>
             </div>
