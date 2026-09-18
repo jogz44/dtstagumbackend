@@ -1683,8 +1683,23 @@ class DocumentController extends Controller
             'acknowledgements' => fn ($q) => $q->latest(),
         ]);
 
-        $trackingService = app(DocumentTrackingService::class);
-        $summary = $trackingService->getTrackingSummary($document, $request->user());
+        $events = DocumentHistory::query()
+            ->where('document_id', $document->id)
+            ->with([
+                'user:id,first_name,last_name,username,position,is_active,office_id',
+                'user.office:id,name,short_name',
+                'fromUser:id,first_name,last_name,username,position,is_active,office_id',
+                'fromUser.office:id,name,short_name',
+                'toUser:id,first_name,last_name,username,position,is_active,office_id',
+                'toUser.office:id,name,short_name',
+            ])
+            ->latest('created_at')
+            ->orderByDesc('id')
+            ->get();
+
+        $timelineEvents = $events
+            ->map(fn (DocumentHistory $event) => $this->timelineEventPayload($event, true))
+            ->values();
 
         return response()->json([
             'document' => [
@@ -1705,7 +1720,7 @@ class DocumentController extends Controller
                 'attachments' => $document->attachments,
                 'created_at' => $document->created_at?->format('M d, Y h:i A'),
             ],
-            'timeline' => $summary['timeline'] ?? [],
+            'timeline' => $timelineEvents,
         ]);
     }
 
