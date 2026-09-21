@@ -1545,17 +1545,29 @@ class DocumentController extends Controller
 
     public function receive(Request $request, Document $document): JsonResponse
     {
-        if (! in_array(strtolower((string) $document->status), ['transferred', 'released'])) {
-            return response()->json([
-                'message' => 'Document cannot be received via QR scan because it has not been transferred first.',
-            ], 422);
-        }
-
         $user = $request->user();
         $userOffice = $user->office?->name ?? 'HR Division';
         $userDivision = $user->division?->name;
         $statusBefore = $document->status;
         $fromOffice = $document->office_assignment ?? $document->origin_sender;
+
+        // Check if receiving user is in the same office as current holder / document office
+        $docOffice = $document->office_assignment ?? $document->origin_sender ?? $document->creator?->office?->name;
+        $isSameOffice = false;
+        if ($user->office_id && $document->creator?->office_id && (int) $user->office_id === (int) $document->creator->office_id) {
+            $isSameOffice = true;
+        } elseif ($userOffice && $docOffice) {
+            $userSimilar = Document::getSimilarOfficeNames($userOffice);
+            if (in_array($docOffice, $userSimilar, true)) {
+                $isSameOffice = true;
+            }
+        }
+
+        if (! $isSameOffice && ! in_array(strtolower((string) $document->status), ['transferred', 'released'])) {
+            return response()->json([
+                'message' => 'Document cannot be received via QR scan because it has not been transferred first.',
+            ], 422);
+        }
 
         $document->update([
             'office_assignment' => $userOffice,
