@@ -73,7 +73,24 @@ class DocumentController extends Controller
                 $terminalStatuses = ['approved', 'archived', 'completed', 'released'];
                 $todayStr = Carbon::today('Asia/Manila')->toDateString();
 
-                $query->where(function ($qSearch) use ($searchTrimmed, $searchLower, $terminalStatuses, $todayStr) {
+                $monthMap = [
+                    'jan' => 1, 'january' => 1,
+                    'feb' => 2, 'february' => 2,
+                    'mar' => 3, 'march' => 3,
+                    'apr' => 4, 'april' => 4,
+                    'may' => 5,
+                    'jun' => 6, 'june' => 6,
+                    'jul' => 7, 'july' => 7,
+                    'aug' => 8, 'august' => 8,
+                    'sep' => 9, 'sept' => 9, 'september' => 9,
+                    'oct' => 10, 'october' => 10,
+                    'nov' => 11, 'november' => 11,
+                    'dec' => 12, 'december' => 12,
+                ];
+                $matchedMonth = $monthMap[$searchLower] ?? null;
+                $dateCols = ['created_at', 'due_date', 'due_at', 'received_at', 'completed_at'];
+
+                $query->where(function ($qSearch) use ($searchTrimmed, $searchLower, $terminalStatuses, $todayStr, $matchedMonth, $dateCols) {
                     $qSearch->where('tracking_number', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('description', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('origin_sender', 'LIKE', "%{$searchTrimmed}%")
@@ -85,6 +102,25 @@ class DocumentController extends Controller
                         ->orWhere('assigned_user', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('remarks', 'LIKE', "%{$searchTrimmed}%")
                         ->orWhere('status', 'LIKE', "%{$searchTrimmed}%");
+
+                    foreach ($dateCols as $col) {
+                        if ($matchedMonth) {
+                            $qSearch->orWhereRaw("MONTH({$col}) = ?", [$matchedMonth]);
+                        }
+                        $qSearch->orWhereRaw("DATE_FORMAT({$col}, '%b') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%M') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%Y-%m-%d') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%m-%d') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%b %d, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%b %e, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%b %d') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%b %e') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%M %d, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%M %e, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%M %d') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%M %e') LIKE ?", ["%{$searchTrimmed}%"])
+                            ->orWhereRaw("DATE_FORMAT({$col}, '%Y') LIKE ?", ["%{$searchTrimmed}%"]);
+                    }
 
                     if ($searchLower === 'overdue') {
                         $qSearch->orWhere(function ($qOvd) use ($terminalStatuses, $todayStr) {
@@ -197,6 +233,23 @@ class DocumentController extends Controller
                   $terminalStatuses = ['approved', 'archived', 'completed', 'released'];
                   $todayStr = Carbon::today('Asia/Manila')->toDateString();
 
+                  $monthMap = [
+                      'jan' => 1, 'january' => 1,
+                      'feb' => 2, 'february' => 2,
+                      'mar' => 3, 'march' => 3,
+                      'apr' => 4, 'april' => 4,
+                      'may' => 5,
+                      'jun' => 6, 'june' => 6,
+                      'jul' => 7, 'july' => 7,
+                      'aug' => 8, 'august' => 8,
+                      'sep' => 9, 'sept' => 9, 'september' => 9,
+                      'oct' => 10, 'october' => 10,
+                      'nov' => 11, 'november' => 11,
+                      'dec' => 12, 'december' => 12,
+                  ];
+                  $matchedMonth = $monthMap[$searchLower] ?? null;
+                  $dateCols = ['created_at', 'due_date', 'due_at', 'received_at', 'completed_at'];
+
                   $qSearch->where('tracking_number', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('description', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('origin_sender', 'LIKE', "%{$searchTrimmed}%")
@@ -208,6 +261,25 @@ class DocumentController extends Controller
                       ->orWhere('assigned_user', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('remarks', 'LIKE', "%{$searchTrimmed}%")
                       ->orWhere('status', 'LIKE', "%{$searchTrimmed}%");
+
+                  foreach ($dateCols as $col) {
+                      if ($matchedMonth) {
+                          $qSearch->orWhereRaw("MONTH({$col}) = ?", [$matchedMonth]);
+                      }
+                      $qSearch->orWhereRaw("DATE_FORMAT({$col}, '%b') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%M') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%Y-%m-%d') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%m-%d') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%b %d, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%b %e, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%b %d') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%b %e') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%M %d, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%M %e, %Y') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%M %d') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%M %e') LIKE ?", ["%{$searchTrimmed}%"])
+                          ->orWhereRaw("DATE_FORMAT({$col}, '%Y') LIKE ?", ["%{$searchTrimmed}%"]);
+                  }
 
                   if ($searchLower === 'overdue') {
                       $qSearch->orWhere(function ($qOvd) use ($terminalStatuses, $todayStr) {
@@ -1551,7 +1623,7 @@ class DocumentController extends Controller
         $statusBefore = $document->status;
         $fromOffice = $document->office_assignment ?? $document->origin_sender;
 
-        // Check if receiving user is in the same office as current holder / document office
+        // Check if receiving user is in the target office or same office as current holder / document office
         $docOffice = $document->office_assignment ?? $document->origin_sender ?? $document->creator?->office?->name;
         $isSameOffice = false;
         if ($user->office_id && $document->creator?->office_id && (int) $user->office_id === (int) $document->creator->office_id) {
@@ -1563,7 +1635,14 @@ class DocumentController extends Controller
             }
         }
 
-        if (! $isSameOffice && ! in_array(strtolower((string) $document->status), ['transferred', 'released'])) {
+        $statusLower = strtolower((string) $document->status);
+        if (in_array($statusLower, ['transferred', 'released'], true)) {
+            if (! $isSameOffice) {
+                return response()->json([
+                    'message' => "This document was transmitted to {$docOffice} and has not been received by them yet. Your office cannot receive it.",
+                ], 422);
+            }
+        } elseif (! $isSameOffice) {
             return response()->json([
                 'message' => 'Document cannot be received via QR scan because it has not been transferred first.',
             ], 422);

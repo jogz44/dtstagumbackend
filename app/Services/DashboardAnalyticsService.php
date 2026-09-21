@@ -55,6 +55,9 @@ class DashboardAnalyticsService
         // 6b. Completed Trend (Office-wide completion trend)
         $completedTrend = $this->calculateCompletedTrend($viewer, $startDate, $endDate);
 
+        // 6c. Completed Overdue Stats (How many completed documents were overdue before completion)
+        $completedOverdueStats = $this->calculateCompletedOverdueStats($viewer, $baseAuthorizedQuery, $startDate, $endDate);
+
         // 7. Performance Summary
         $performance = $this->calculatePerformanceSummary($baseAuthorizedQuery, $rangeQuery, $startDate, $endDate);
 
@@ -77,6 +80,7 @@ class DashboardAnalyticsService
             'top_document_types' => $topDocumentTypes,
             'overdue_trend' => $overdueTrend,
             'completed_trend' => $completedTrend,
+            'completed_overdue_stats' => $completedOverdueStats,
             'performance' => $performance,
             'yearly_overview' => $yearlyOverview,
         ];
@@ -189,17 +193,14 @@ class DashboardAnalyticsService
                 $q->where(function ($sub) use ($terminalStatuses) {
                     $sub->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
                         ->whereNotNull('due_date')
-                        ->where('due_date', '<=', Carbon::today()->format('Y-m-d'));
+                        ->where('due_date', '<=', Carbon::today('Asia/Manila')->format('Y-m-d'));
                 })->orWhere(DB::raw('LOWER(status)'), 'overdue');
             })
             ->where(function ($q) use ($officeNames, $viewer) {
                 if (! empty($officeNames)) {
                     $q->whereIn('office_assignment', $officeNames)
                         ->orWhereNull('office_assignment')
-                        ->orWhere('office_assignment', '')
-                        ->orWhere('assigned_user', $viewer->full_name)
-                        ->orWhere('assigned_user', (string) $viewer->id)
-                        ->orWhere('assigned_user', $viewer->username);
+                        ->orWhere('office_assignment', '');
                 }
             })
             ->count();
@@ -511,14 +512,23 @@ class DashboardAnalyticsService
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
         $terminalStatuses = DocumentStatuses::TERMINAL;
 
-        // Office-wide query for Receiver exceptions ("Received for this year" and yearly completed statistics)
+        $role = strtolower($viewer->roles->first()?->name ?? $viewer->role_name ?? '');
+        $isReceiver = ! in_array($role, ['admin', 'super_admin', 'administrator', 'supervisor'], true);
+
+        // Office-wide query vs Receiver personal query
         $officeQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
-        $officeQuery = $this->applyOfficeScope($officeQuery, $viewer);
+        if ($isReceiver) {
+            $officeQuery = $this->applyUserPassedThroughScope($officeQuery, $viewer);
+            $officeReceivedQuery = clone $officeQuery;
+        } else {
+            $officeQuery = $this->applyOfficeScope($officeQuery, $viewer);
+            $officeReceivedQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+            $officeReceivedQuery = $this->applyReceivedOfficeScope($officeReceivedQuery, $viewer);
+        }
 
-        $officeReceivedQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
-        $officeReceivedQuery = $this->applyReceivedOfficeScope($officeReceivedQuery, $viewer);
+        $officeNames = \App\Models\Document::getSimilarOfficeNames($viewer->office?->name);
 
-        // Total Received This Year - office-wide aggregate (includes transmitted documents)
+        // Total Received This Year
         $receivedTotal = (clone $officeReceivedQuery)
             ->where(function ($q) use ($yearStart, $yearEnd) {
                 $q->where(function ($sub) use ($yearStart, $yearEnd) {
@@ -533,12 +543,12 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Pending total - role-scoped active status documents (personal for Receiver, office for Admin/Supervisor)
+        // Pending total
         $pendingTotal = (clone $baseQuery)
             ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
             ->count();
 
-        // Overdue total - role-scoped active overdue documents (personal for Receiver, office for Admin/Supervisor)
+        // Overdue total - MUST be currently held by user's office (excludes documents currently in outside offices)
         $overdueTotal = (clone $baseQuery)
             ->whereNotIn(DB::raw('LOWER(status)'), $terminalStatuses)
             ->where(function ($q) {
@@ -547,9 +557,16 @@ class DashboardAnalyticsService
                         ->where('due_date', '<=', Carbon::today('Asia/Manila')->format('Y-m-d'));
                 })->orWhere(DB::raw('LOWER(status)'), 'overdue');
             })
+            ->where(function ($q) use ($officeNames) {
+                if (! empty($officeNames)) {
+                    $q->whereIn('office_assignment', $officeNames)
+                        ->orWhereNull('office_assignment')
+                        ->orWhere('office_assignment', '');
+                }
+            })
             ->count();
 
-        // Completed This Year - office-wide aggregate exception for all roles including Receiver
+        // Completed This Year
         $completedTotal = (clone $officeQuery)
             ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
             ->where(function ($q) use ($yearStart, $yearEnd) {
@@ -565,18 +582,16 @@ class DashboardAnalyticsService
             })
             ->count();
 
-        // Received Today - count distinct documents that have a received_at/created_at timestamp today,
-        // an acknowledgement today, or a history entry for this office/user today.
-        $officeNames = \App\Models\Document::getSimilarOfficeNames($viewer->office?->name);
+        // Received Today
         $historyDocIds = DocumentHistory::query()
             ->whereIn('action', [DocumentHistory::RECEIVED, 'RECEIVED', 'TRANSFERRED', 'CREATED', 'REGISTERED', 'ACKNOWLEDGED', 'FORWARDED'])
             ->where('created_at', '>=', $todayStart)
             ->where('created_at', '<', $todayEnd)
-            ->when(! empty($officeNames), fn ($q) => $q->where(function ($w) use ($officeNames) {
+            ->when(! empty($officeNames) && ! $isReceiver, fn ($q) => $q->where(function ($w) use ($officeNames) {
                 $w->whereIn('to_office', $officeNames)
                   ->orWhereIn('from_office', $officeNames);
             }))
-            ->when(empty($officeNames), fn ($q) => $q->where('performed_by', $viewer->id))
+            ->when($isReceiver || empty($officeNames), fn ($q) => $q->where('performed_by', $viewer->id))
             ->pluck('document_id');
 
         $receivedToday = (clone $officeReceivedQuery)
@@ -604,6 +619,57 @@ class DashboardAnalyticsService
             'completed_total' => $completedTotal,
             'received_today' => $receivedToday,
         ];
+    }
+
+    public function calculateCompletedOverdueStats(User $viewer, Builder $baseQuery, Carbon $startDate, Carbon $endDate): array
+    {
+        $officeQuery = Document::query()->where(DB::raw('LOWER(status)'), '!=', 'archived');
+        $officeQuery = $this->applyOfficeScope($officeQuery, $viewer);
+
+        $completedDocs = (clone $officeQuery)
+            ->whereIn(DB::raw('LOWER(status)'), ['completed', 'released', 'approved'])
+            ->get(['id', 'due_date', 'completed_at', 'updated_at']);
+
+        $totalCompleted = $completedDocs->count();
+        $overdueCount = 0;
+
+        foreach ($completedDocs as $doc) {
+            if ($doc->due_date) {
+                $completedDate = $doc->completed_at ?? $doc->updated_at;
+                if ($completedDate && $doc->due_date->startOfDay()->lt($completedDate->startOfDay())) {
+                    $overdueCount++;
+                }
+            }
+        }
+
+        $onTimeCount = max(0, $totalCompleted - $overdueCount);
+        $percentage = $totalCompleted > 0 ? round(($overdueCount / $totalCompleted) * 100, 1) : 0.0;
+
+        return [
+            'total_completed' => $totalCompleted,
+            'completed_overdue_count' => $overdueCount,
+            'on_time_count' => $onTimeCount,
+            'overdue_percentage' => $percentage,
+        ];
+    }
+
+    public function applyUserPassedThroughScope($query, User $user)
+    {
+        return $query->where(function ($q) use ($user) {
+            $q->where('created_by', $user->id)
+              ->orWhere('assigned_user', $user->full_name)
+              ->orWhere('assigned_user', (string) $user->id)
+              ->orWhere('assigned_user', $user->username)
+              ->orWhereHas('acknowledgements', function ($qAck) use ($user) {
+                  $qAck->where('user_id', $user->id)
+                       ->orWhere('assigned_name', $user->full_name);
+              })
+              ->orWhereHas('histories', function ($qH) use ($user) {
+                  $qH->where('performed_by', $user->id)
+                     ->orWhere('from_user_id', $user->id)
+                     ->orWhere('to_user_id', $user->id);
+              });
+        });
     }
 
     public function applyReceivedOfficeScope($query, User $user)
@@ -641,37 +707,11 @@ class DashboardAnalyticsService
         $role = strtolower($user->roles->first()?->name ?? $user->role_name ?? '');
 
         if (in_array($role, ['admin', 'super_admin', 'administrator', 'supervisor'], true)) {
-            // Admin & Supervisor: count all pending, overdue, and completed stats across their entire office
+            // Admin & Supervisor: count stats across their entire office
             return $this->applyOfficeScope($query, $user);
         } else {
-            // Receiver / Standard user: strictly personal stats for pending and overdue
-            $officeName = $user->office?->name;
-            $officeNames = Document::getSimilarOfficeNames($officeName);
-
-            return $query->where(function ($q) use ($user, $officeNames) {
-                // Directly assigned to the user (current holder)
-                $q->where(function ($qHolder) use ($user) {
-                    $qHolder->where('assigned_user', $user->full_name)
-                            ->orWhere('assigned_user', (string) $user->id)
-                            ->orWhere('assigned_user', $user->username);
-                });
-
-                // Or created/acknowledged by user, provided it is still in user's office or unassigned
-                $q->orWhere(function ($qInvolved) use ($user, $officeNames) {
-                    $qInvolved->where(function ($qSub) use ($user) {
-                        $qSub->where('created_by', $user->id)
-                             ->orWhereHas('acknowledgements', fn ($qAck) => $qAck->where('user_id', $user->id)->orWhere('assigned_name', $user->full_name));
-                    });
-
-                    if (! empty($officeNames)) {
-                        $qInvolved->where(function ($qOff) use ($officeNames) {
-                            $qOff->whereNull('office_assignment')
-                                 ->orWhere('office_assignment', '')
-                                 ->orWhereIn('office_assignment', $officeNames);
-                        });
-                    }
-                });
-            });
+            // Receiver / Standard user: strictly personal stats for documents that passed through them
+            return $this->applyUserPassedThroughScope($query, $user);
         }
     }
 }
