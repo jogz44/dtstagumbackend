@@ -35,7 +35,7 @@ class DashboardAnalyticsService
         $rangeQuery = (clone $baseAuthorizedQuery)->whereBetween('documents.created_at', [$startDate, $endDate]);
 
         // 1. KPI Summary
-        $summary = $this->calculateSummary($baseAuthorizedQuery, $rangeQuery);
+        $summary = $this->calculateSummary($baseAuthorizedQuery, $rangeQuery, $viewer);
 
         // 2. Documents by Status (for the whole year / all-time per office)
         $statusDistribution = $this->calculateStatusDistribution($baseAuthorizedQuery);
@@ -50,7 +50,7 @@ class DashboardAnalyticsService
         $topDocumentTypes = $this->calculateTopDocumentTypes($rangeQuery);
 
         // 6. Overdue Trend
-        $overdueTrend = $this->calculateOverdueTrend($baseAuthorizedQuery, $startDate, $endDate);
+        $overdueTrend = $this->calculateOverdueTrend($baseAuthorizedQuery, $startDate, $endDate, $viewer);
 
         // 6b. Completed Trend (Office-wide completion trend)
         $completedTrend = $this->calculateCompletedTrend($viewer, $startDate, $endDate);
@@ -160,15 +160,28 @@ class DashboardAnalyticsService
         ];
     }
 
-    private function calculateSummary(Builder $baseQuery, Builder $rangeQuery): array
+    private function calculateSummary(Builder $baseQuery, Builder $rangeQuery, User $viewer): array
     {
         $totalDocuments = (clone $rangeQuery)->count();
 
         $activeStatuses = ['registered', 'outgoing', 'incoming', 'pending', 'in progress', 'in_transit', 'received', 'in_process'];
         $terminalStatuses = DocumentStatuses::TERMINAL;
 
+        $officeName = $viewer->office?->name;
+        $officeNames = Document::getSimilarOfficeNames($officeName);
+
         $pending = (clone $baseQuery)
             ->whereIn(DB::raw('LOWER(status)'), $activeStatuses)
+            ->where(function ($q) use ($officeNames, $viewer) {
+                if (! empty($officeNames)) {
+                    $q->whereIn('office_assignment', $officeNames)
+                        ->orWhereNull('office_assignment')
+                        ->orWhere('office_assignment', '')
+                        ->orWhere('assigned_user', $viewer->full_name)
+                        ->orWhere('assigned_user', (string) $viewer->id)
+                        ->orWhere('assigned_user', $viewer->username);
+                }
+            })
             ->count();
 
         $overdue = (clone $baseQuery)
@@ -178,6 +191,16 @@ class DashboardAnalyticsService
                         ->whereNotNull('due_date')
                         ->where('due_date', '<=', Carbon::today()->format('Y-m-d'));
                 })->orWhere(DB::raw('LOWER(status)'), 'overdue');
+            })
+            ->where(function ($q) use ($officeNames, $viewer) {
+                if (! empty($officeNames)) {
+                    $q->whereIn('office_assignment', $officeNames)
+                        ->orWhereNull('office_assignment')
+                        ->orWhere('office_assignment', '')
+                        ->orWhere('assigned_user', $viewer->full_name)
+                        ->orWhere('assigned_user', (string) $viewer->id)
+                        ->orWhere('assigned_user', $viewer->username);
+                }
             })
             ->count();
 
@@ -323,13 +346,16 @@ class DashboardAnalyticsService
         })->toArray();
     }
 
-    private function calculateOverdueTrend(Builder $baseQuery, Carbon $startDate, Carbon $endDate): array
+    private function calculateOverdueTrend(Builder $baseQuery, Carbon $startDate, Carbon $endDate, User $viewer): array
     {
         $trend = [];
         $current = $startDate->copy()->startOfDay();
         $today = Carbon::today('Asia/Manila');
         $end = ($endDate->gt($today) && $startDate->lte($today)) ? $today->copy()->startOfDay() : $endDate->copy()->startOfDay();
         $todayStr = $today->format('Y-m-d');
+
+        $officeName = $viewer->office?->name;
+        $officeNames = Document::getSimilarOfficeNames($officeName);
 
         $daysCount = $current->diffInDays($end) + 1;
         if ($daysCount > 90) {
@@ -352,6 +378,16 @@ class DashboardAnalyticsService
                         })->orWhere(DB::raw('LOWER(status)'), 'overdue');
                     })
                     ->whereDate('created_at', '<=', $dateStr)
+                    ->where(function ($q) use ($officeNames, $viewer) {
+                        if (! empty($officeNames)) {
+                            $q->whereIn('office_assignment', $officeNames)
+                                ->orWhereNull('office_assignment')
+                                ->orWhere('office_assignment', '')
+                                ->orWhere('assigned_user', $viewer->full_name)
+                                ->orWhere('assigned_user', (string) $viewer->id)
+                                ->orWhere('assigned_user', $viewer->username);
+                        }
+                    })
                     ->count();
             }
 
