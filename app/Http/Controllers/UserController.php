@@ -46,12 +46,36 @@ class UserController extends Controller
         ]);
     }
 
+    // public function statistics(Request $request): JsonResponse
+    // {
+    //     $activeCount = User::query()->where('is_active', true)->count();
+    //     $inactiveNormalCount = User::query()->where('is_active', false)->count();
+    //     $deactivatedCount = User::onlyTrashed()->count();
+    //     $totalCount = User::withTrashed()->count();
+
+    //     return response()->json([
+    //         'total_users' => $totalCount,
+    //         'active_users' => $activeCount,
+    //         'inactive_users' => $inactiveNormalCount + $deactivatedCount,
+    //         'breakdown' => [
+    //             'active' => $activeCount,
+    //             'inactive' => $inactiveNormalCount,
+    //             'deactivated' => $deactivatedCount,
+    //         ],
+    //     ]);
+    // }
     public function statistics(Request $request): JsonResponse
     {
-        $activeCount = User::query()->where('is_active', true)->count();
-        $inactiveNormalCount = User::query()->where('is_active', false)->count();
-        $deactivatedCount = User::onlyTrashed()->count();
-        $totalCount = User::withTrashed()->count();
+        $officeId = $request->user()->office_id;
+
+        $scope = fn($q) => $officeId === null
+            ? $q->whereRaw('1 = 0')
+            : $q->where('office_id', $officeId);
+
+        $activeCount = $scope(User::query()->where('is_active', true))->count();
+        $inactiveNormalCount = $scope(User::query()->where('is_active', false))->count();
+        $deactivatedCount = $scope(User::onlyTrashed())->count();
+        $totalCount = $scope(User::withTrashed())->count();
 
         return response()->json([
             'total_users' => $totalCount,
@@ -110,15 +134,12 @@ class UserController extends Controller
 
         $authUser = $request->user();
 
-        if (! $this->canViewAllOffices($authUser)) {
-            if ($authUser->office_id === null) {
-                // No office assigned: show nothing (or swap for ->whereKey($authUser->id) to show only themselves)
-                $query->whereRaw('1 = 0');
-            } else {
-                $query->where('office_id', $authUser->office_id);
-            }
-        }
 
+        if ($authUser->office_id === null) {
+            $query->whereRaw('1 = 0'); // no office assigned, show nothing
+        } else {
+            $query->where('office_id', $authUser->office_id);
+        }
 
         $query->with([
             'office:id,name,short_name',
@@ -254,11 +275,8 @@ class UserController extends Controller
     }
 
 
-    private function canViewAllOffices(User $user): bool
-    {
-        return $user->username === 'admin' || $user->hasAnyRole(RoleNames::adminRoles());
-    }
-    
+
+
     public function deactivate(
         Request $request,
         User $user,
