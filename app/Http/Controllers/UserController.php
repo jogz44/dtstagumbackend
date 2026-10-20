@@ -107,6 +107,19 @@ class UserController extends Controller
                 break;
         }
 
+
+        $authUser = $request->user();
+
+        if (! $this->canViewAllOffices($authUser)) {
+            if ($authUser->office_id === null) {
+                // No office assigned: show nothing (or swap for ->whereKey($authUser->id) to show only themselves)
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->where('office_id', $authUser->office_id);
+            }
+        }
+
+
         $query->with([
             'office:id,name,short_name',
             'division:id,name,short_name,office_id',
@@ -240,6 +253,12 @@ class UserController extends Controller
         return $user->hasAnyRole(RoleNames::adminRoles());
     }
 
+
+    private function canViewAllOffices(User $user): bool
+    {
+        return $user->username === 'admin' || $user->hasAnyRole(RoleNames::adminRoles());
+    }
+    
     public function deactivate(
         Request $request,
         User $user,
